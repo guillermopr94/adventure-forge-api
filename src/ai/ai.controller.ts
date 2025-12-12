@@ -14,9 +14,18 @@ export class AiController {
         @Headers('x-pollinations-token') pollinationsKey: string
     ) {
         if (!prompt) throw new BadRequestException('Prompt is required');
-        // Fallback to env vars if headers missing
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+
+        // Sanitize keys: treat "undefined", "null", or empty strings as missing
+        const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
+
+        const gHeader = sanitize(googleKey);
+        const pHeader = sanitize(pollinationsKey);
+
+        const gKey = gHeader || process.env.GOOGLE_API_KEY;
+        const pKey = pHeader || process.env.POLLINATIONS_TOKEN;
+
+        console.log(`[Text] Google Key: ${gHeader ? 'Present (Header)' : 'Missing (Header)'} -> Final: ${gKey ? 'Present (' + gKey.substring(0, 5) + '...)' : 'Missing'}`);
+        console.log(`[Text] Pollinations Key: ${pHeader ? 'Present (Header)' : 'Missing (Header)'} -> Final: ${pKey ? 'Present' : 'Missing'}`);
 
         return {
             text: await this.aiService.generateText(prompt, history || [], gKey, pKey, model)
@@ -35,9 +44,13 @@ export class AiController {
     ) {
         if (!text) throw new BadRequestException('Text is required');
 
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
-        const oKey = openaiKey || process.env.OPENAI_API_KEY;
+        const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
+
+        const gKey = sanitize(googleKey) || process.env.GOOGLE_API_KEY;
+        const pKey = sanitize(pollinationsKey) || process.env.POLLINATIONS_TOKEN;
+        const oKey = sanitize(openaiKey) || process.env.OPENAI_API_KEY;
+
+        console.log(`[Audio] Keys - Google: ${!!gKey}, Pollinations: ${!!pKey}, OpenAI: ${!!oKey}`);
 
         return {
             audio: await this.aiService.generateAudio(text, voice, genre, lang, gKey, pKey, oKey)

@@ -6,34 +6,44 @@ export class AiService {
 
     // --- Public "Smart" Methods ---
 
-    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, model?: string): Promise<string> {
+    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, unusedModel?: string): Promise<string> {
         const errors: string[] = [];
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
 
-        // 1. Try Gemini
-        if (googleKey) {
+        // Define prioritized strategies
+        const strategies = [
+            { name: "Gemini 2.5 Flash", fn: () => this.generateGeminiText(prompt, history, gKey, "gemini-2.5-flash") },
+            { name: "Gemini 2.5 Flash Lite", fn: () => this.generateGeminiText(prompt, history, gKey, "gemini-2.5-flash-lite") },
+            { name: "Gemini 1.5 Pro", fn: () => this.generateGeminiText(prompt, history, gKey, "gemini-1.5-pro") },
+            { name: "Gemini 1.5 Flash", fn: () => this.generateGeminiText(prompt, history, gKey, "gemini-1.5-flash") },
+            { name: "Pollinations (OpenAI)", fn: () => this.generatePollinationsText(prompt, history, pKey, "openai") },
+            { name: "Pollinations (Mistral)", fn: () => this.generatePollinationsText(prompt, history, pKey, "mistral") },
+            { name: "Pollinations (SearchGPT)", fn: () => this.generatePollinationsText(prompt, history, pKey, "searchgpt") },
+        ];
+
+        for (const strategy of strategies) {
             try {
-                return await this.generateGeminiText(prompt, history, googleKey, model);
+                // If it's a Gemini strategy and we have no key, skip it immediately to save time/errors
+                if (strategy.name.startsWith("Gemini") && !gKey) {
+                    throw new Error("No Google API Key provided");
+                }
+
+                console.log(`Attempting: ${strategy.name}`);
+                return await strategy.fn();
             } catch (e: any) {
-                console.warn("Gemini Text failed:", e.message);
-                errors.push(`Gemini: ${e.message}`);
+                console.warn(`${strategy.name} failed: ${e.message}`);
+                errors.push(`${strategy.name}: ${e.message}`);
             }
         }
 
-        // 2. Try Pollinations
-        try {
-            return await this.generatePollinationsText(prompt, history, pollinationsKey);
-        } catch (e: any) {
-            console.warn("Pollinations Text failed:", e.message);
-            errors.push(`Pollinations: ${e.message}`);
-        }
-
-        throw new Error(`All Text providers failed: ${errors.join(", ")}`);
+        throw new Error(`All Text providers failed. Errors: ${errors.join(" | ")}`);
     }
 
     async generateAudio(text: string, voice: string, genre: string, lang: string, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
         const errors: string[] = [];
 
-        // 1. Try Pollinations (Best quality/free tier options often preferred by user)
+        // 1. Try Pollinations 
         try {
             return await this.generatePollinationsAudio(text, voice, genre, pollinationsKey);
         } catch (e: any) {
@@ -41,14 +51,7 @@ export class AiService {
             errors.push(`Pollinations: ${e.message}`);
         }
 
-        // 2. Try OpenAI (if key provided - logic from frontend)
-        if (openaiKey && openaiKey.length > 5) {
-            // Not implementing OpenAI distinct from Pollinations for now as Pollinations covers it, 
-            // unless user explicitly wants direct OpenAI. 
-            // Frontend had OpenAITTS separate. Assuming Pollinations uses OpenAI model effectively.
-        }
-
-        // 3. Try Kokoro (Good backup)
+        // 2. Try Kokoro
         try {
             return await this.generateKokoroAudio(text, lang, genre);
         } catch (e: any) {
@@ -56,7 +59,7 @@ export class AiService {
             errors.push(`Kokoro: ${e.message}`);
         }
 
-        // 4. Try Gemini
+        // 3. Try Gemini (if key)
         if (googleKey) {
             try {
                 return await this.generateGeminiAudio(text, googleKey);
@@ -70,7 +73,7 @@ export class AiService {
     }
 
     async generateImage(prompt: string, googleKey?: string): Promise<string> {
-        // 1. Try Gemini (High quality)
+        // 1. Try Gemini
         if (googleKey) {
             try {
                 return await this.generateGeminiImage(prompt, googleKey);
@@ -79,7 +82,7 @@ export class AiService {
             }
         }
 
-        // 2. Try Pollinations (Reliable fallback)
+        // 2. Try Pollinations
         try {
             return await this.generatePollinationsImage(prompt);
         } catch (e: any) {
@@ -89,46 +92,58 @@ export class AiService {
 
     // --- Private Provider Implementations ---
 
-    private async generateGeminiText(prompt: string, history: any[], apiKey: string, model?: string): Promise<string> {
+    private async generateGeminiText(prompt: string, history: any[], apiKey: string | undefined, model: string): Promise<string> {
+        if (!apiKey) throw new Error("API Key is missing for Gemini");
+
         const { GoogleGenAI } = require("@google/genai");
         const client = new GoogleGenAI({ apiKey });
 
         let fullPrompt = "";
-        history.forEach(msg => {
-            const text = msg.parts ? msg.parts[0].text : "";
-            fullPrompt += `${msg.role === 'user' ? 'User' : 'Model'}: ${text}\n`;
-        });
+        if (history && Array.isArray(history)) {
+            history.forEach(msg => {
+                const text = msg.parts ? msg.parts[0].text : "";
+                fullPrompt += `${msg.role === 'user' ? 'User' : 'Model'}: ${text}\n`;
+            });
+        }
+
         fullPrompt += `User: ${prompt}\nModel:`;
 
         const response = await client.models.generateContent({
-            model: model || 'gemini-1.5-flash',
+            model: model,
             contents: fullPrompt,
             config: { temperature: 0.7 }
         });
+
+        if (!response.text) {
+            // Sometimes response structure varies or is blocked
+            throw new Error("Empty response from Gemini");
+        }
         return response.text;
     }
 
-    private async generatePollinationsText(prompt: string, history: any[], token?: string): Promise<string> {
+    private async generatePollinationsText(prompt: string, history: any[], token: string | undefined, model: string): Promise<string> {
         let fullPrompt = "";
-        history.forEach(msg => {
-            const text = msg.parts ? msg.parts[0].text : "";
-            fullPrompt += `${msg.role === 'user' ? 'User' : 'Model'}: ${text}\n`;
-        });
+        if (history && Array.isArray(history)) {
+            history.forEach(msg => {
+                const text = msg.parts ? msg.parts[0].text : "";
+                fullPrompt += `${msg.role === 'user' ? 'User' : 'Model'}: ${text}\n`;
+            });
+        }
         fullPrompt += `User: ${prompt}\nModel:`;
 
         const encodedPrompt = encodeURIComponent(fullPrompt);
-        let url = "";
+        let url = `https://text.pollinations.ai/${encodedPrompt}?model=${model}`;
+        // If token exists, use authenticated endpoint? (Pollinations docs vary, but usually param 'key' works)
+        // If the user meant "pollinations.ai" explicitly, the authenticated one is via gen.pollinations.ai sometimes?
+        // Let's stick to the method that was working or falling back. 
+        // Based on docs: https://text.pollinations.ai/PROMPT?model=MODEL
 
         if (token) {
-            url = `https://gen.pollinations.ai/text/${encodedPrompt}?key=${token}`;
-        } else {
-            url = `https://text.pollinations.ai/${encodedPrompt}`;
+            url += `&key=${token}`;
+            // Some endpoints might be different for VIP, but let's try standard param first
         }
 
-        const headers: any = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        const response = await fetch(url, { headers });
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`Status ${response.status}`);
         return await response.text();
     }
