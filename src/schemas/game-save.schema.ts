@@ -22,6 +22,9 @@ export class GameSave {
 
     @Prop()
     currentImage: string;
+
+    @Prop({ type: [String], default: [] })
+    currentImages: string[]; // For cinematic mode (3 images)
 }
 
 export const GameSaveSchema = SchemaFactory.createForClass(GameSave);

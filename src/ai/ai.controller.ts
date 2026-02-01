@@ -21,7 +21,11 @@ export class AiController {
         const gHeader = sanitize(googleKey);
         const pHeader = sanitize(pollinationsKey);
 
-        const gKey = gHeader || process.env.GOOGLE_API_KEY;
+        // Only accept header key if it looks like a valid Gemini API Key (starts with AIza)
+        // Otherwise fallback to env key. This prevents OAuth tokens from breaking the call.
+        const validGHeader = (gHeader && gHeader.startsWith('AIza')) ? gHeader : undefined;
+
+        const gKey = validGHeader || process.env.GOOGLE_API_KEY;
         const pKey = pHeader || process.env.POLLINATIONS_TOKEN;
 
         console.log(`[Text] Google Key: ${gHeader ? 'Present (Header)' : 'Missing (Header)'} -> Final: ${gKey ? 'Present (' + gKey.substring(0, 5) + '...)' : 'Missing'}`);
@@ -46,7 +50,11 @@ export class AiController {
 
         const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
 
-        const gKey = sanitize(googleKey) || process.env.GOOGLE_API_KEY;
+        const rawGKey = sanitize(googleKey);
+        // Validate header key format
+        const validGKey = (rawGKey && rawGKey.startsWith('AIza')) ? rawGKey : undefined;
+
+        const gKey = validGKey || process.env.GOOGLE_API_KEY;
         const pKey = sanitize(pollinationsKey) || process.env.POLLINATIONS_TOKEN;
         const oKey = sanitize(openaiKey) || process.env.OPENAI_API_KEY;
 

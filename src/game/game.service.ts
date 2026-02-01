@@ -9,7 +9,10 @@ export class GameService {
 
     async saveGame(userId: string, saveData: Partial<GameSave> & { _id?: string }) {
         console.log(`[GameService] Saving game for user ${userId}. ID: ${saveData._id}`);
-        console.log(`[GameService] Data Payload:`, JSON.stringify(saveData).substring(0, 200) + "...");
+        // console.log(`[GameService] Data Payload:`, JSON.stringify(saveData).substring(0, 200) + "...");
+        if (saveData.currentImages) {
+            console.log(`[GameService] Saving ${saveData.currentImages.length} cinematic images.`);
+        }
 
         if (saveData._id) {
             // Update existing save
