@@ -37,6 +37,7 @@ export class AiService {
         const errors: string[] = [];
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const puterToken = process.env.PUTER_TOKEN;
 
         // Define prioritized strategies with fallback logic
         const strategies = [
@@ -44,6 +45,8 @@ export class AiService {
             { name: "Gemini Flash Latest", model: "models/gemini-flash-latest", type: "gemini" },
             { name: "Gemini 2.0 Flash", model: "models/gemini-2.0-flash", type: "gemini" },
             { name: "Gemini Pro Latest", model: "models/gemini-pro-latest", type: "gemini" },
+            { name: "Puter AI (Claude)", model: "claude-sonnet-4", type: "puter" },
+            { name: "Puter AI (GPT-4o)", model: "gpt-4o", type: "puter" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
             { name: "Pollinations (Mistral)", model: "mistral", type: "pollinations" },
         ];
@@ -51,12 +54,15 @@ export class AiService {
         for (const strategy of strategies) {
             try {
                 if (strategy.type === "gemini" && !gKey) continue;
+                if (strategy.type === "puter" && !puterToken) continue;
 
                 console.log(`[AiService] Attempting: ${strategy.name}`);
 
                 return await this.withRetry(async () => {
                     if (strategy.type === "gemini") {
                         return await this.generateGeminiText(prompt, history, gKey, strategy.model);
+                    } else if (strategy.type === "puter") {
+                        return await this.generatePuterText(prompt, history, puterToken!, strategy.model);
                     } else {
                         return await this.generatePollinationsText(prompt, history, pKey, strategy.model);
                     }
@@ -69,6 +75,68 @@ export class AiService {
         }
 
         throw new Error(`All Text providers failed. Errors: ${errors.join(" | ")}`);
+    }
+
+    private async generatePuterText(prompt: string, history: any[], token: string, model: string): Promise<string> {
+        const url = "https://api.puter.com/drivers/call";
+        
+        // Build messages in OpenAI format
+        const messages: any[] = [];
+        if (history && Array.isArray(history)) {
+            history.forEach(msg => {
+                const text = msg.parts && msg.parts[0] ? msg.parts[0].text : "";
+                if (text) {
+                    messages.push({
+                        role: msg.role === 'user' ? 'user' : 'assistant',
+                        content: text
+                    });
+                }
+            });
+        }
+        messages.push({ role: 'user', content: prompt });
+
+        const payload = {
+            interface: "puter-chat-completion",
+            driver: this.getPuterDriver(model),
+            method: "complete",
+            args: {
+                messages: messages,
+                model: model,
+                stream: false
+            }
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error(`Puter Text Status ${response.status}`);
+        const data = await response.json();
+        
+        // Puter structure: { result: { message: { content: "..." } } } or similar
+        const result = data.result || data;
+        const message = result.message || (result.choices && result.choices[0] && result.choices[0].message);
+        
+        if (message && message.content) {
+            if (Array.isArray(message.content)) {
+                return message.content.map((p: any) => p.text || "").join("");
+            }
+            return message.content;
+        }
+        
+        throw new Error("Invalid response from Puter Text API");
+    }
+
+    private getPuterDriver(model: string): string {
+        if (model.includes('claude')) return 'anthropic';
+        if (model.includes('gpt')) return 'openai';
+        if (model.includes('gemini')) return 'gemini';
+        return 'openai'; // default
     }
 
     async generateAudio(text: string, voice: string, genre: string, lang: string, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
@@ -107,33 +175,120 @@ export class AiService {
     }
 
     async generateImage(prompt: string, googleKey?: string): Promise<string> {
-        // 1. Try Gemini
-        if (googleKey) {
+        const errors: string[] = [];
+        
+        // 1. Try Gemini (Imagen 3 via Gemini Flash)
+        if (googleKey || process.env.GOOGLE_API_KEY) {
+            const gKey = googleKey || process.env.GOOGLE_API_KEY;
             try {
-                return await this.withRetry(() => this.generateGeminiImage(prompt, googleKey),
-                    { retries: 2, baseDelay: 1000, name: 'Gemini Image' });
+                return await this.withRetry(() => this.generateGeminiImage(prompt, gKey!),
+                    { retries: 2, baseDelay: 1500, name: 'Gemini Image' });
             } catch (e: any) {
                 console.warn("[AiService] Gemini Image failed:", e.message);
+                errors.push(`Gemini: ${e.message}`);
+            }
+        }
+
+        // 2. Try Puter AI (High Reliability Fallback - Requires PUTER_TOKEN)
+        const puterToken = process.env.PUTER_TOKEN;
+        if (puterToken) {
+            try {
+                return await this.withRetry(() => this.generatePuterImage(prompt, puterToken),
+                    { retries: 2, baseDelay: 1000, name: 'Puter Image' });
+            } catch (e: any) {
+                console.warn("[AiService] Puter Image failed:", e.message);
+                errors.push(`Puter: ${e.message}`);
             }
         }
 
         const pKey = process.env.POLLINATIONS_TOKEN;
 
-        // 2. Try Pollinations (Flux)
+        // 3. Try Pollinations (Flux) - Main Strategy
         try {
             return await this.withRetry(() => this.generatePollinationsImage(prompt, 'flux'),
-                { retries: 2, baseDelay: 1000, name: 'Pollinations Image (Flux)' });
+                { retries: 2, baseDelay: 2000, name: 'Pollinations Flux' });
         } catch (e: any) {
             console.warn("[AiService] Pollinations Flux failed:", e.message);
+            errors.push(`Pollinations (Flux): ${e.message}`);
         }
 
-        // 3. Try Pollinations (Turbo) - Fallback
+        // 4. Try Pollinations (Turbo) - High Availability Fallback
         try {
             return await this.withRetry(() => this.generatePollinationsImage(prompt, 'turbo'),
-                { retries: 2, baseDelay: 1000, name: 'Pollinations Image (Turbo)' });
+                { retries: 2, baseDelay: 2000, name: 'Pollinations Turbo' });
         } catch (e: any) {
-            throw new Error(`All Image providers failed. Last error: ${e.message}`);
+            console.warn("[AiService] Pollinations Turbo failed:", e.message);
+            errors.push(`Pollinations (Turbo): ${e.message}`);
         }
+
+        // 5. Try Pollinations (Stable Diffusion XL) - Legacy Fallback
+        try {
+            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'stable-diffusion-xl'),
+                { retries: 1, baseDelay: 1000, name: 'Pollinations SDXL' });
+        } catch (e: any) {
+            console.warn("[AiService] Pollinations SDXL failed:", e.message);
+            errors.push(`Pollinations (SDXL): ${e.message}`);
+        }
+
+        // 6. Try Legacy Pollinations Endpoint (No Token Required)
+        try {
+            return await this.withRetry(() => this.generateLegacyPollinationsImage(prompt),
+                { retries: 1, baseDelay: 1000, name: 'Legacy Pollinations' });
+        } catch (e: any) {
+            console.warn("[AiService] Legacy Pollinations failed:", e.message);
+            errors.push(`Legacy Pollinations: ${e.message}`);
+        }
+
+        throw new Error(`All Image providers failed. Errors: ${errors.join(" | ")}`);
+    }
+
+    private async generatePuterImage(prompt: string, token: string): Promise<string> {
+        const url = "https://api.puter.com/drivers/call";
+        const payload = {
+            interface: "puter-image-generation",
+            driver: "puter-image-generation",
+            method: "generate",
+            args: {
+                prompt: prompt,
+                model: "gpt-image-1-mini",
+                ratio: { w: 512, h: 512 }
+            }
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error(`Puter Image Status ${response.status}`);
+        const data = await response.json();
+        
+        // Puter returns a data URL in response.result or data.result
+        const result = data.result || data;
+        if (typeof result === 'string' && result.startsWith('data:image')) {
+            return result;
+        }
+        
+        throw new Error("Invalid response from Puter Image API");
+    }
+
+    private async generateLegacyPollinationsImage(prompt: string): Promise<string> {
+        const encodedPrompt = encodeURIComponent(prompt);
+        const seed = Math.floor(Math.random() * 1000000);
+        // Standard legacy endpoint: https://image.pollinations.ai/prompt/{prompt}?seed={seed}&width=512&height=512&nologo=true
+        const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?seed=${seed}&width=512&height=512&nologo=true`;
+        
+        console.log(`[AiService] Calling Legacy Pollinations: ${url}`);
+        
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Legacy Pollinations Status ${response.status}`);
+        
+        const buffer = await response.arrayBuffer();
+        return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
     // ... (generateGameTurn omitted) ...
@@ -193,6 +348,8 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
             { name: "Gemini Flash Latest", model: "models/gemini-flash-latest", type: "gemini" },
             { name: "Gemini 2.0 Flash", model: "models/gemini-2.0-flash", type: "gemini" },
             { name: "Gemini Pro Latest", model: "models/gemini-pro-latest", type: "gemini" },
+            { name: "Puter AI (Claude)", model: "claude-sonnet-4", type: "puter" },
+            { name: "Puter AI (GPT-4o)", model: "gpt-4o", type: "puter" },
             { name: "Pollinations (Gemini Fast)", model: "gemini-fast", type: "pollinations" },
             { name: "Pollinations (OpenAI Fast)", model: "openai-fast", type: "pollinations" },
             { name: "Pollinations (Claude Fast)", model: "claude-fast", type: "pollinations" },
@@ -204,6 +361,7 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
         for (const strategy of strategies) {
             try {
                 if (strategy.type === "gemini" && !gKey) continue;
+                if (strategy.type === "puter" && !puterToken) continue;
 
                 console.log(`[AiService] Attempting Game Turn: ${strategy.name}`);
 
@@ -211,6 +369,9 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                     if (strategy.type === "gemini") {
                         // For Gemini, we pass systemPrompt separately if possible, or as first message
                         return await this.generateGeminiText(prompt, history, gKey, strategy.model, true, systemPrompt);
+                    } else if (strategy.type === "puter") {
+                        const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}\nIMPORTANT: Respond ONLY with valid JSON.`;
+                        return await this.generatePuterText(fullPrompt, history, puterToken!, strategy.model);
                     } else {
                         const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}\nIMPORTANT: Respond ONLY with valid JSON.`;
                         return await this.generatePollinationsText(fullPrompt, history, pKey, strategy.model);
