@@ -60,7 +60,16 @@ export class GameService {
                 try {
                     // 1. Generate Structured Game Turn
                     subscriber.next({ type: 'status', message: 'Generating Scene...' });
-                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey);
+                    
+                    const onRetry = (strategy: string, attempt: number) => {
+                        subscriber.next({ 
+                            type: 'status', 
+                            message: `Retrying ${strategy} (Attempt ${attempt})...`,
+                            is_retry: true 
+                        });
+                    };
+
+                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey, onRetry);
 
                     const paragraphs = turnData.paragraphs || [];
                     const options = turnData.options || [];

@@ -9,7 +9,7 @@ export class AiService {
      */
     private async withRetry<T>(
         operation: () => Promise<T>,
-        options: { retries: number; baseDelay: number; name: string } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
+        options: { retries: number; baseDelay: number; name: string; onRetry?: (attempt: number, error: any) => void } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
     ): Promise<T> {
         let lastError: any;
         for (let i = 0; i < options.retries; i++) {
@@ -17,11 +17,14 @@ export class AiService {
                 return await operation();
             } catch (error: any) {
                 lastError = error;
-                const isRetryable = error.status === 429 || error.status >= 500 || error.message?.includes('fetch') || error.message?.includes('timeout');
+                const status = error.status || (error.response && error.response.status) || (error instanceof Response ? error.status : 0);
+                const isRetryable = status === 429 || status >= 500 || error.message?.toLowerCase().includes('fetch') || error.message?.toLowerCase().includes('timeout') || error.message?.toLowerCase().includes('network');
 
                 if (!isRetryable || i === options.retries - 1) {
                     throw error;
                 }
+
+                if (options.onRetry) options.onRetry(i + 1, error);
 
                 const delay = options.baseDelay * Math.pow(2, i);
                 console.warn(`[AiService] ${options.name} failed (attempt ${i + 1}/${options.retries}). Retrying in ${delay}ms... Error: ${error.message}`);
@@ -33,7 +36,7 @@ export class AiService {
 
     // --- Public "Smart" Methods ---
 
-    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, unusedModel?: string): Promise<string> {
+    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void): Promise<string> {
         const errors: string[] = [];
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
@@ -66,7 +69,12 @@ export class AiService {
                     } else {
                         return await this.generatePollinationsText(prompt, history, pKey, strategy.model);
                     }
-                }, { retries: 2, baseDelay: 1000, name: strategy.name });
+                }, { 
+                    retries: 2, 
+                    baseDelay: 1000, 
+                    name: strategy.name,
+                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt)
+                });
 
             } catch (e: any) {
                 console.warn(`[AiService] ${strategy.name} failed after retries: ${e.message}`);
@@ -320,7 +328,7 @@ export class AiService {
         return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
-    async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string): Promise<any> {
+    async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void): Promise<any> {
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
         const puterToken = process.env.PUTER_TOKEN;
@@ -371,7 +379,12 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                         const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}\nIMPORTANT: Respond ONLY with valid JSON.`;
                         return await this.generatePollinationsText(fullPrompt, history, pKey, strategy.model);
                     }
-                }, { retries: 2, baseDelay: 1000, name: strategy.name });
+                }, { 
+                    retries: 2, 
+                    baseDelay: 1000, 
+                    name: strategy.name,
+                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt)
+                });
 
                 try {
                     // Pre-process result to find the first '{' and last '}'
