@@ -40,19 +40,16 @@ export class AiService {
 
         // Define prioritized strategies with fallback logic
         const strategies = [
-            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash-exp", type: "gemini" },
-            { name: "Gemini 1.5 Flash Latest", model: "gemini-1.5-flash-latest", type: "gemini" },
-            { name: "Gemini 1.5 Pro Latest", model: "gemini-1.5-pro-latest", type: "gemini" },
+            { name: "Gemini Flash Latest", model: "gemini-flash-latest", type: "gemini" },
+            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash", type: "gemini" },
+            { name: "Gemini Pro Latest", model: "gemini-pro-latest", type: "gemini" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
             { name: "Pollinations (Mistral)", model: "mistral", type: "pollinations" },
-            { name: "Pollinations (SearchGPT)", model: "searchgpt", type: "pollinations" },
         ];
 
         for (const strategy of strategies) {
             try {
-                if (strategy.type === "gemini" && !gKey) {
-                    throw new Error("No Google API Key provided");
-                }
+                if (strategy.type === "gemini" && !gKey) continue;
 
                 console.log(`[AiService] Attempting: ${strategy.name}`);
                 
@@ -134,19 +131,21 @@ export class AiService {
 
         const systemPrompt = `You are an immersive game engine for a ${genre} adventure. 
 Generate a JSON object representing the next state of the game based on the user's action and the previous history.
-Schema:
+
+JSON Schema to follow:
 {
-  "paragraphs": string[], // 1-3 paragraphs describing the scene and result of the user's action.
-  "options": string[],    // Exactly 3 short, compelling choices for the player.
-  "inventory_changes": string[], // Optional. List of items gained or lost (e.g., "+ Rusty Sword", "- 5 Gold").
-  "stats_update": object // Optional. Numeric changes to player stats (e.g., { "HP": -10, "XP": 50 }).
+  "paragraphs": ["description of what happens"],
+  "options": ["choice 1", "choice 2", "choice 3"],
+  "inventory_changes": [],
+  "stats_update": {}
 }
-Avoid markdown formatting, return ONLY the JSON object.`;
+
+IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN. START YOUR RESPONSE WITH '{' AND END WITH '}'.`;
 
         const strategies = [
-            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash-exp", type: "gemini" },
-            { name: "Gemini 1.5 Flash Latest", model: "gemini-1.5-flash-latest", type: "gemini" },
-            { name: "Gemini 1.5 Pro Latest", model: "gemini-1.5-pro-latest", type: "gemini" },
+            { name: "Gemini Flash Latest", model: "gemini-flash-latest", type: "gemini" },
+            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash", type: "gemini" },
+            { name: "Gemini Pro Latest", model: "gemini-pro-latest", type: "gemini" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
         ];
 
@@ -167,11 +166,25 @@ Avoid markdown formatting, return ONLY the JSON object.`;
                 }, { retries: 2, baseDelay: 1000, name: strategy.name });
 
                 try {
+                    // Pre-process result to find the first '{' and last '}'
+                    const firstBrace = result.indexOf('{');
+                    const lastBrace = result.lastIndexOf('}');
+                    if (firstBrace !== -1 && lastBrace !== -1) {
+                        const jsonPart = result.substring(firstBrace, lastBrace + 1);
+                        return JSON.parse(jsonPart);
+                    }
                     return JSON.parse(result);
                 } catch (parseError) {
-                    console.warn(`[AiService] JSON Parse failed for ${strategy.name}. Attempting to extract JSON...`);
-                    const jsonMatch = result.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+                    console.warn(`[AiService] JSON Parse failed for ${strategy.name}. Result: ${result.substring(0, 100)}...`);
+                    
+                    // Fallback: If it's pure text, try to wrap it in a JSON structure so the game doesn't crash
+                    if (!result.includes('{')) {
+                        console.warn(`[AiService] Result contains no JSON. Wrapping text in paragraphs.`);
+                        return {
+                            paragraphs: [result],
+                            options: ["Continue", "Look around", "Wait"]
+                        };
+                    }
                     throw parseError;
                 }
             } catch (e: any) {
@@ -191,14 +204,16 @@ Avoid markdown formatting, return ONLY the JSON object.`;
         const client = new GoogleGenAI({ apiKey });
         
         // Build config for the request
-        const config: any = { model };
+        const requestConfig: any = { model };
         
         if (isJson) {
-            config.generationConfig = { responseMimeType: "application/json" };
+            requestConfig.generationConfig = { 
+                responseMimeType: "application/json" 
+            };
         }
 
         if (systemInstruction) {
-            config.systemInstruction = systemInstruction;
+            requestConfig.systemInstruction = systemInstruction;
         }
 
         // Build contents array
@@ -220,45 +235,51 @@ Avoid markdown formatting, return ONLY the JSON object.`;
             parts: [{ text: prompt }]
         });
 
-        config.contents = contents;
+        requestConfig.contents = contents;
 
         // Call the new API
-        const result = await client.models.generateContent(config);
-        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        const result = await client.models.generateContent(requestConfig);
+        let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!text) {
             throw new Error("Empty response from Gemini");
         }
 
+        // Strip markdown if it returned code blocks despite JSON mode
+        if (isJson && text.includes("```")) {
+            text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+        }
+
         return text;
     }
 
-    private async generatePollinationsText(prompt: string, history: any[], token: string | undefined, model: string): Promise<string> {
+    private async generatePollinationsText(prompt: string, history: any[], token?: string, model: string = 'openai'): Promise<string> {
+        // Build a prompt that includes history
         let fullPrompt = "";
         if (history && Array.isArray(history)) {
             history.forEach(msg => {
-                const text = msg.parts ? msg.parts[0].text : "";
-                // Pollinations expects a more standard chat format in the prompt if we don't use an endpoint that supports arrays
-                fullPrompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${text}\n`;
+                const text = msg.parts && msg.parts[0] ? msg.parts[0].text : "";
+                if (text) {
+                    fullPrompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${text}\n`;
+                }
             });
         }
         
-        // Avoid duplication if prompt is already the last message in history
-        const lastInHistory = history && history.length > 0 ? history[history.length - 1].parts[0].text : null;
-        if (lastInHistory !== prompt) {
-            fullPrompt += `User: ${prompt}\nAssistant:`;
-        } else {
-            fullPrompt += `Assistant:`;
-        }
+        fullPrompt += `User: ${prompt}\nAssistant:`;
 
-        const encodedPrompt = encodeURIComponent(fullPrompt);
-        let url = `https://text.pollinations.ai/${encodedPrompt}?model=${model}`;
+        const url = `https://text.pollinations.ai/`;
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: [{ role: 'user', content: fullPrompt }],
+                model: model,
+                jsonMode: false,
+                seed: Math.floor(Math.random() * 1000000)
+            })
+        });
 
-        if (token) {
-            url += `&key=${token}`;
-        }
-
-        const response = await fetch(url);
         if (!response.ok) throw new Error(`Pollinations Text Status ${response.status}`);
         return await response.text();
     }
@@ -294,17 +315,16 @@ Avoid markdown formatting, return ONLY the JSON object.`;
         });
 
         if (!response.ok) throw new Error(`Kokoro error: ${response.status}`);
-        const blob = await response.blob();
-        const buffer = await blob.arrayBuffer();
+        const buffer = await response.arrayBuffer();
         return Buffer.from(buffer).toString('base64');
     }
 
     private async generateGeminiAudio(text: string, apiKey: string): Promise<string> {
         const { GoogleGenAI } = require("@google/genai");
         const client = new GoogleGenAI({ apiKey });
-        const model = client.getGenerativeModel({ model: "gemini-1.5-flash" }); // Use stable model for tts if preview is flaky
 
-        const result = await model.generateContent({
+        const result = await client.models.generateContent({
+            model: "gemini-flash-latest", 
             contents: [{ role: 'user', parts: [{ text: text }] }],
             generationConfig: {
                 responseModalities: ['AUDIO'],
@@ -316,8 +336,7 @@ Avoid markdown formatting, return ONLY the JSON object.`;
             },
         } as any);
         
-        const response = await result.response;
-        const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        const data = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!data) throw new Error("No audio data in Gemini response");
         return data;
     }
@@ -325,18 +344,17 @@ Avoid markdown formatting, return ONLY the JSON object.`;
     private async generateGeminiImage(prompt: string, apiKey: string): Promise<string> {
         const { GoogleGenAI } = require("@google/genai");
         const client = new GoogleGenAI({ apiKey });
-        const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' }); // Image support varies by region/model
         
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
+        const result = await client.models.generateContent({
+            model: 'gemini-flash-latest',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
+        });
 
-        if (response.candidates && response.candidates[0].content && response.candidates[0].content.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData && part.inlineData.data) {
-                    return `data:image/png;base64,${part.inlineData.data}`;
-                }
-            }
+        const part = result.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData && p.inlineData.data);
+        if (part && part.inlineData && part.inlineData.data) {
+            return `data:image/png;base64,${part.inlineData.data}`;
         }
+        
         throw new Error("No image data in Gemini response");
     }
 
