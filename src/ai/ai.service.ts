@@ -200,17 +200,37 @@ Avoid markdown formatting, return ONLY the JSON object.`;
             generationConfig 
         });
 
-        let fullPrompt = "";
-        if (history && Array.isArray(history)) {
-            history.forEach(msg => {
-                const text = msg.parts ? msg.parts[0].text : "";
-                fullPrompt += `${msg.role === 'user' ? 'User' : 'Model'}: ${text}\n`;
-            });
+        // Use native history format if available
+        if (history && Array.isArray(history) && history.length > 0) {
+            // Filter and format history for Gemini SDK
+            const contents = history.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: msg.parts.map((p: any) => ({ text: p.text }))
+            }));
+
+            // Check if the last message in history is the same as the current prompt
+            // To avoid duplication
+            const lastMsg = contents[contents.length - 1];
+            if (lastMsg && lastMsg.role === 'user' && lastMsg.parts[0].text === prompt) {
+                // If it's already there, just use the history up to the last message
+                // and call generateContent on the chat session or use the whole history.
+                const result = await genModel.generateContent({ contents });
+                const response = await result.response;
+                return response.text();
+            } else {
+                // Append current prompt to history
+                contents.push({
+                    role: 'user',
+                    parts: [{ text: prompt }]
+                });
+                const result = await genModel.generateContent({ contents });
+                const response = await result.response;
+                return response.text();
+            }
         }
 
-        fullPrompt += `User: ${prompt}\nModel:`;
-
-        const result = await genModel.generateContent(fullPrompt);
+        // Fallback to single-turn if no history
+        const result = await genModel.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
 
@@ -225,10 +245,18 @@ Avoid markdown formatting, return ONLY the JSON object.`;
         if (history && Array.isArray(history)) {
             history.forEach(msg => {
                 const text = msg.parts ? msg.parts[0].text : "";
-                fullPrompt += `${msg.role === 'user' ? 'User' : 'Model'}: ${text}\n`;
+                // Pollinations expects a more standard chat format in the prompt if we don't use an endpoint that supports arrays
+                fullPrompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${text}\n`;
             });
         }
-        fullPrompt += `User: ${prompt}\nModel:`;
+        
+        // Avoid duplication if prompt is already the last message in history
+        const lastInHistory = history && history.length > 0 ? history[history.length - 1].parts[0].text : null;
+        if (lastInHistory !== prompt) {
+            fullPrompt += `User: ${prompt}\nAssistant:`;
+        } else {
+            fullPrompt += `Assistant:`;
+        }
 
         const encodedPrompt = encodeURIComponent(fullPrompt);
         let url = `https://text.pollinations.ai/${encodedPrompt}?model=${model}`;
