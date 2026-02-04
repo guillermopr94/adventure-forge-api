@@ -148,7 +148,9 @@ export class AiService {
         const token = process.env.POLLINATIONS_TOKEN;
 
         // Using new endpoint: https://gen.pollinations.ai/image/...
-        let url = `https://gen.pollinations.ai/image/${encodedPrompt}?model=${model}&nologo=true&seed=${seed}&width=800&height=450&enhance=false`;
+        // Mobile optimization requested: Portrait mode (Vertical)
+        // Swapped width/height to 450x800 (9:16 approx)
+        let url = `https://gen.pollinations.ai/image/${encodedPrompt}?model=${model}&nologo=true&seed=${seed}&width=450&height=800&enhance=false`;
 
         if (token) {
             url += `&key=${token}`;
