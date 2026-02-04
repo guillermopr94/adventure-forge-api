@@ -40,9 +40,10 @@ export class AiService {
 
         // Define prioritized strategies with fallback logic
         const strategies = [
-            { name: "Gemini Flash Latest", model: "gemini-flash-latest", type: "gemini" },
-            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash", type: "gemini" },
-            { name: "Gemini Pro Latest", model: "gemini-pro-latest", type: "gemini" },
+            { name: "Gemini 2.5 Flash", model: "models/gemini-2.5-flash", type: "gemini" },
+            { name: "Gemini Flash Latest", model: "models/gemini-flash-latest", type: "gemini" },
+            { name: "Gemini 2.0 Flash", model: "models/gemini-2.0-flash", type: "gemini" },
+            { name: "Gemini Pro Latest", model: "models/gemini-pro-latest", type: "gemini" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
             { name: "Pollinations (Mistral)", model: "mistral", type: "pollinations" },
         ];
@@ -143,9 +144,10 @@ JSON Schema to follow:
 IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN. START YOUR RESPONSE WITH '{' AND END WITH '}'.`;
 
         const strategies = [
-            { name: "Gemini Flash Latest", model: "gemini-flash-latest", type: "gemini" },
-            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash", type: "gemini" },
-            { name: "Gemini Pro Latest", model: "gemini-pro-latest", type: "gemini" },
+            { name: "Gemini 2.5 Flash", model: "models/gemini-2.5-flash", type: "gemini" },
+            { name: "Gemini Flash Latest", model: "models/gemini-flash-latest", type: "gemini" },
+            { name: "Gemini 2.0 Flash", model: "models/gemini-2.0-flash", type: "gemini" },
+            { name: "Gemini Pro Latest", model: "models/gemini-pro-latest", type: "gemini" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
         ];
 
