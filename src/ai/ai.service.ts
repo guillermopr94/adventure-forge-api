@@ -18,7 +18,7 @@ export class AiService {
             } catch (error: any) {
                 lastError = error;
                 const isRetryable = error.status === 429 || error.status >= 500 || error.message?.includes('fetch') || error.message?.includes('timeout');
-                
+
                 if (!isRetryable || i === options.retries - 1) {
                     throw error;
                 }
@@ -53,7 +53,7 @@ export class AiService {
                 if (strategy.type === "gemini" && !gKey) continue;
 
                 console.log(`[AiService] Attempting: ${strategy.name}`);
-                
+
                 return await this.withRetry(async () => {
                     if (strategy.type === "gemini") {
                         return await this.generateGeminiText(prompt, history, gKey, strategy.model);
@@ -76,7 +76,7 @@ export class AiService {
 
         // 1. Try Pollinations 
         try {
-            return await this.withRetry(() => this.generatePollinationsAudio(text, voice, genre, pollinationsKey), 
+            return await this.withRetry(() => this.generatePollinationsAudio(text, voice, genre, pollinationsKey),
                 { retries: 2, baseDelay: 500, name: 'Pollinations Audio' });
         } catch (e: any) {
             console.warn("[AiService] Pollinations Audio failed:", e.message);
@@ -117,13 +117,56 @@ export class AiService {
             }
         }
 
-        // 2. Try Pollinations
+        const pKey = process.env.POLLINATIONS_TOKEN;
+
+        // 2. Try Pollinations (Flux)
         try {
-            return await this.withRetry(() => this.generatePollinationsImage(prompt),
-                { retries: 2, baseDelay: 1000, name: 'Pollinations Image' });
+            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'flux'),
+                { retries: 2, baseDelay: 1000, name: 'Pollinations Image (Flux)' });
+        } catch (e: any) {
+            console.warn("[AiService] Pollinations Flux failed:", e.message);
+        }
+
+        // 3. Try Pollinations (Turbo) - Fallback
+        try {
+            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'turbo'),
+                { retries: 2, baseDelay: 1000, name: 'Pollinations Image (Turbo)' });
         } catch (e: any) {
             throw new Error(`All Image providers failed. Last error: ${e.message}`);
         }
+    }
+
+    // ... (generateGameTurn omitted) ...
+
+
+
+    // ...
+
+    private async generatePollinationsImage(prompt: string, model: string = 'flux'): Promise<string> {
+        const encodedPrompt = encodeURIComponent(prompt);
+        const seed = Math.floor(Math.random() * 10000);
+        const token = process.env.POLLINATIONS_TOKEN;
+
+        // Using new endpoint: https://gen.pollinations.ai/image/...
+        let url = `https://gen.pollinations.ai/image/${encodedPrompt}?model=${model}&nologo=true&seed=${seed}&width=800&height=450&enhance=false`;
+
+        if (token) {
+            url += `&key=${token}`;
+        }
+
+        console.log(`[AiService] Calling Pollinations Image: ${url.replace(/key=[^&]+/, 'key=***')}`);
+
+        const response = await fetch(url, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error(`[AiService] Pollinations Image Error (${response.status}): ${errText}`);
+            throw new Error(`Pollinations Image Status ${response.status}`);
+        }
+        const buffer = await response.arrayBuffer();
+        return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
     async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string): Promise<any> {
@@ -148,6 +191,11 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
             { name: "Gemini Flash Latest", model: "models/gemini-flash-latest", type: "gemini" },
             { name: "Gemini 2.0 Flash", model: "models/gemini-2.0-flash", type: "gemini" },
             { name: "Gemini Pro Latest", model: "models/gemini-pro-latest", type: "gemini" },
+            { name: "Pollinations (Gemini Fast)", model: "gemini-fast", type: "pollinations" },
+            { name: "Pollinations (OpenAI Fast)", model: "openai-fast", type: "pollinations" },
+            { name: "Pollinations (Claude Fast)", model: "claude-fast", type: "pollinations" },
+            { name: "Pollinations (Nova Fast)", model: "nova-fast", type: "pollinations" },
+            { name: "Pollinations (Mistral)", model: "mistral", type: "pollinations" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
         ];
 
@@ -156,7 +204,7 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                 if (strategy.type === "gemini" && !gKey) continue;
 
                 console.log(`[AiService] Attempting Game Turn: ${strategy.name}`);
-                
+
                 const result = await this.withRetry(async () => {
                     if (strategy.type === "gemini") {
                         // For Gemini, we pass systemPrompt separately if possible, or as first message
@@ -178,7 +226,7 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                     return JSON.parse(result);
                 } catch (parseError) {
                     console.warn(`[AiService] JSON Parse failed for ${strategy.name}. Result: ${result.substring(0, 100)}...`);
-                    
+
                     // Fallback: If it's pure text, try to wrap it in a JSON structure so the game doesn't crash
                     if (!result.includes('{')) {
                         console.warn(`[AiService] Result contains no JSON. Wrapping text in paragraphs.`);
@@ -204,13 +252,13 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
 
         const { GoogleGenAI } = require("@google/genai");
         const client = new GoogleGenAI({ apiKey });
-        
+
         // Build config for the request
         const requestConfig: any = { model };
-        
+
         if (isJson) {
-            requestConfig.generationConfig = { 
-                responseMimeType: "application/json" 
+            requestConfig.generationConfig = {
+                responseMimeType: "application/json"
             };
         }
 
@@ -256,50 +304,68 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
     }
 
     private async generatePollinationsText(prompt: string, history: any[], token?: string, model: string = 'openai'): Promise<string> {
-        // Build a prompt that includes history
-        let fullPrompt = "";
+        // Build messages in OpenAI format
+        const messages: any[] = [];
+
         if (history && Array.isArray(history)) {
             history.forEach(msg => {
                 const text = msg.parts && msg.parts[0] ? msg.parts[0].text : "";
                 if (text) {
-                    fullPrompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${text}\n`;
+                    messages.push({
+                        role: msg.role === 'user' ? 'user' : 'assistant',
+                        content: text
+                    });
                 }
             });
         }
-        
-        fullPrompt += `User: ${prompt}\nAssistant:`;
 
-        const url = `https://text.pollinations.ai/`;
-        
+        // Add implicit system prompt behavior by appending, or just add the user prompt
+        messages.push({ role: 'user', content: prompt });
+
+        const url = `https://gen.pollinations.ai/v1/chat/completions`;
+
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
-                messages: [{ role: 'user', content: fullPrompt }],
+                messages: messages,
                 model: model,
-                jsonMode: false,
-                seed: Math.floor(Math.random() * 1000000)
+                stream: false
             })
         });
 
         if (!response.ok) throw new Error(`Pollinations Text Status ${response.status}`);
-        return await response.text();
+        const json = await response.json();
+        return json.choices?.[0]?.message?.content || "";
     }
 
     private async generatePollinationsAudio(text: string, voice: string, genre: string, token?: string): Promise<string> {
         const instructions = this.getStyleInstructions(genre || '');
         const prompt = `${instructions} Say exactly this: ${text}`;
         const encodedText = encodeURIComponent(prompt);
-        let url = "";
+
+        // Verified: POST /v1/audio/speech fails (404). GET /text/... works.
+        // Also verified: Token must be passed as 'key' query param.
+        // Also verified: 'Microsoft Helena' etc causing 400. Must use OpenAI voices: alloy, echo, fable, onyx, nova, shimmer
+        const safeVoice = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'].includes(voice) ? voice : 'alloy';
+
+        let url = `https://gen.pollinations.ai/text/${encodedText}?model=openai-audio&voice=${safeVoice}`;
 
         if (token) {
-            url = `https://gen.pollinations.ai/text/${encodedText}?model=openai-audio&voice=${voice || 'alloy'}&key=${token}`;
-        } else {
-            url = `https://text.pollinations.ai/${encodedText}?model=openai-audio&voice=${voice || 'alloy'}`;
+            url += `&key=${token}`;
         }
 
+        console.log(`[AiService] Calling Pollinations Audio: ${url.replace(/key=[^&]+/, 'key=***')}`);
+
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`Pollinations Audio Status ${response.status}`);
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error(`[AiService] Pollinations Audio Error (${response.status}): ${errText}`);
+            throw new Error(`Pollinations Audio Status ${response.status}`);
+        }
         const buffer = await response.arrayBuffer();
         return Buffer.from(buffer).toString('base64');
     }
@@ -326,7 +392,7 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
         const client = new GoogleGenAI({ apiKey });
 
         const result = await client.models.generateContent({
-            model: "gemini-flash-latest", 
+            model: "gemini-flash-latest",
             contents: [{ role: 'user', parts: [{ text: text }] }],
             generationConfig: {
                 responseModalities: ['AUDIO'],
@@ -337,7 +403,7 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                 },
             },
         } as any);
-        
+
         const data = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!data) throw new Error("No audio data in Gemini response");
         return data;
@@ -346,7 +412,7 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
     private async generateGeminiImage(prompt: string, apiKey: string): Promise<string> {
         const { GoogleGenAI } = require("@google/genai");
         const client = new GoogleGenAI({ apiKey });
-        
+
         const result = await client.models.generateContent({
             model: 'gemini-flash-latest',
             contents: [{ role: 'user', parts: [{ text: prompt }] }]
@@ -356,20 +422,11 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
         if (part && part.inlineData && part.inlineData.data) {
             return `data:image/png;base64,${part.inlineData.data}`;
         }
-        
+
         throw new Error("No image data in Gemini response");
     }
 
-    private async generatePollinationsImage(prompt: string): Promise<string> {
-        const encodedPrompt = encodeURIComponent(prompt);
-        const seed = Math.floor(Math.random() * 10000);
-        const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?nologo=true&seed=${seed}&width=800&height=450&model=flux`;
 
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Pollinations Image Status ${response.status}`);
-        const buffer = await response.arrayBuffer();
-        return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
-    }
 
     private getStyleInstructions(genre: string): string {
         const lowerGenre = genre.toLowerCase();

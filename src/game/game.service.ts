@@ -55,66 +55,68 @@ export class GameService {
     streamTurn(prompt: string, history: any[], voice: string, genre: string, lang: string, gKey?: string, pKey?: string, oKey?: string): any {
         const { Observable } = require('rxjs');
 
-        return new Observable(async (subscriber: any) => {
-            try {
-                // 1. Generate Structured Game Turn
-                subscriber.next({ type: 'status', message: 'Generating Scene...' });
-                const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey);
+        return new Observable((subscriber: any) => {
+            (async () => {
+                try {
+                    // 1. Generate Structured Game Turn
+                    subscriber.next({ type: 'status', message: 'Generating Scene...' });
+                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey);
 
-                const paragraphs = turnData.paragraphs || [];
-                const options = turnData.options || [];
+                    const paragraphs = turnData.paragraphs || [];
+                    const options = turnData.options || [];
 
-                // Emit Text Structure Immediately
-                subscriber.next({
-                    type: 'text_structure',
-                    paragraphs: paragraphs,
-                    options: options,
-                    inventory_changes: turnData.inventory_changes,
-                    stats_update: turnData.stats_update
-                });
-
-                // 2. Process Each Paragraph in Parallel/Pipeline
-                const promises = paragraphs.map(async (paragraph, pIndex) => {
-                    // Start Image Gen
-                    const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, gKey)
-                        .then(img => {
-                            subscriber.next({ type: 'image', index: pIndex, data: img });
-                        })
-                        .catch(e => {
-                            console.warn(`Image failed for P${pIndex}`, e);
-                            subscriber.next({ type: 'image_error', index: pIndex, error: e.message });
-                        });
-
-                    // Start Audio Gen (Split into sentences first)
-                    const sentences = paragraph.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map(s => s.trim()) || [paragraph];
-
-                    const audioPromises = sentences.map(async (sentence, sIndex) => {
-                        try {
-                            const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, gKey, pKey, oKey);
-                            subscriber.next({
-                                type: 'audio',
-                                pIndex: pIndex,
-                                sIndex: sIndex,
-                                text: sentence, // Key for cache
-                                data: audio
-                            });
-                        } catch (e) {
-                            console.warn(`Audio failed P${pIndex} S${sIndex}`, e);
-                        }
+                    // Emit Text Structure Immediately
+                    subscriber.next({
+                        type: 'text_structure',
+                        paragraphs: paragraphs,
+                        options: options,
+                        inventory_changes: turnData.inventory_changes,
+                        stats_update: turnData.stats_update
                     });
 
-                    await Promise.all([imgPromise, ...audioPromises]);
-                });
+                    // 2. Process Each Paragraph in Parallel/Pipeline
+                    const promises = paragraphs.map(async (paragraph: string, pIndex: number) => {
+                        // Start Image Gen
+                        const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, gKey)
+                            .then(img => {
+                                subscriber.next({ type: 'image', index: pIndex, data: img });
+                            })
+                            .catch(e => {
+                                console.warn(`Image failed for P${pIndex}`, e);
+                                subscriber.next({ type: 'image_error', index: pIndex, error: e.message });
+                            });
 
-                await Promise.all(promises);
+                        // Start Audio Gen (Split into sentences first)
+                        const sentences = paragraph.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map(s => s.trim()) || [paragraph];
 
-                subscriber.next({ type: 'done' });
-                subscriber.complete();
+                        const audioPromises = sentences.map(async (sentence, sIndex) => {
+                            try {
+                                const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, gKey, pKey, oKey);
+                                subscriber.next({
+                                    type: 'audio',
+                                    pIndex: pIndex,
+                                    sIndex: sIndex,
+                                    text: sentence, // Key for cache
+                                    data: audio
+                                });
+                            } catch (e) {
+                                console.warn(`Audio failed P${pIndex} S${sIndex}`, e);
+                            }
+                        });
 
-            } catch (e: any) {
-                console.error("Stream Error", e);
-                subscriber.error(e);
-            }
+                        await Promise.all([imgPromise, ...audioPromises]);
+                    });
+
+                    await Promise.all(promises);
+
+                    subscriber.next({ type: 'done' });
+                    subscriber.complete();
+
+                } catch (e: any) {
+                    console.error("Stream Error", e);
+                    subscriber.error(e);
+                }
+            })();
         });
     }
 }
