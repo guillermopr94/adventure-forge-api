@@ -3,9 +3,14 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { GameSave, GameSaveDocument } from '../schemas/game-save.schema';
 
+import { AiService } from '../ai/ai.service';
+
 @Injectable()
 export class GameService {
-    constructor(@InjectModel(GameSave.name) private gameSaveModel: Model<GameSaveDocument>) { }
+    constructor(
+        @InjectModel(GameSave.name) private gameSaveModel: Model<GameSaveDocument>,
+        private aiService: AiService
+    ) { }
 
     async saveGame(userId: string, saveData: Partial<GameSave> & { _id?: string }) {
         console.log(`[GameService] Saving game for user ${userId}. ID: ${saveData._id}`);
@@ -45,5 +50,72 @@ export class GameService {
 
     async deleteSave(saveId: string, userId: string) {
         return this.gameSaveModel.findOneAndDelete({ _id: saveId, userId });
+    }
+
+    // --- Streaming Logic ---
+    streamTurn(prompt: string, history: any[], voice: string, genre: string, lang: string, gKey?: string, pKey?: string, oKey?: string): any {
+        const { Observable } = require('rxjs');
+
+        return new Observable(async (subscriber: any) => {
+            try {
+                // 1. Generate Structured Game Turn
+                subscriber.next({ type: 'status', message: 'Generating Scene...' });
+                const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey);
+
+                const paragraphs = turnData.paragraphs || [];
+                const options = turnData.options || [];
+
+                // Emit Text Structure Immediately
+                subscriber.next({
+                    type: 'text_structure',
+                    paragraphs: paragraphs,
+                    options: options,
+                    inventory_changes: turnData.inventory_changes,
+                    stats_update: turnData.stats_update
+                });
+
+                // 2. Process Each Paragraph in Parallel/Pipeline
+                const promises = paragraphs.map(async (paragraph, pIndex) => {
+                    // Start Image Gen
+                    const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, gKey)
+                        .then(img => {
+                            subscriber.next({ type: 'image', index: pIndex, data: img });
+                        })
+                        .catch(e => {
+                            console.warn(`Image failed for P${pIndex}`, e);
+                            subscriber.next({ type: 'image_error', index: pIndex, error: e.message });
+                        });
+
+                    // Start Audio Gen (Split into sentences first)
+                    const sentences = paragraph.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map(s => s.trim()) || [paragraph];
+
+                    const audioPromises = sentences.map(async (sentence, sIndex) => {
+                        try {
+                            const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, gKey, pKey, oKey);
+                            subscriber.next({
+                                type: 'audio',
+                                pIndex: pIndex,
+                                sIndex: sIndex,
+                                text: sentence, // Key for cache
+                                data: audio
+                            });
+                        } catch (e) {
+                            console.warn(`Audio failed P${pIndex} S${sIndex}`, e);
+                        }
+                    });
+
+                    await Promise.all([imgPromise, ...audioPromises]);
+                });
+
+                await Promise.all(promises);
+
+                subscriber.next({ type: 'done' });
+                subscriber.complete();
+
+            } catch (e: any) {
+                console.error("Stream Error", e);
+                subscriber.error(e);
+            }
+        });
     }
 }
