@@ -65,6 +65,43 @@ export class AiController {
         };
     }
 
+    @Post('batch-audio')
+    async generateBatchAudio(
+        @Body('texts') texts: string[],
+        @Body('voice') voice: string,
+        @Body('genre') genre: string,
+        @Body('lang') lang: string,
+        @Headers('x-google-api-key') googleKey: string,
+        @Headers('x-pollinations-token') pollinationsKey: string,
+        @Headers('x-openai-api-key') openaiKey: string
+    ) {
+        if (!texts || !Array.isArray(texts)) throw new BadRequestException('Texts array is required');
+
+        const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
+
+        const rawGKey = sanitize(googleKey);
+        const validGKey = (rawGKey && rawGKey.startsWith('AIza')) ? rawGKey : undefined;
+
+        const gKey = validGKey || process.env.GOOGLE_API_KEY;
+        const pKey = sanitize(pollinationsKey) || process.env.POLLINATIONS_TOKEN;
+        const oKey = sanitize(openaiKey) || process.env.OPENAI_API_KEY;
+
+        try {
+            const results = await Promise.all(texts.map(async (text) => {
+                if (!text.trim()) return null;
+                try {
+                    return await this.aiService.generateAudio(text, voice, genre, lang, gKey, pKey, oKey);
+                } catch (e) {
+                    console.error(`Batch audio failed for: ${text}`, e);
+                    return null;
+                }
+            }));
+            return { audios: results };
+        } catch (e) {
+            throw new BadRequestException('Batch generation failed');
+        }
+    }
+
     @Post('image')
     async generateImage(
         @Body('prompt') prompt: string,
