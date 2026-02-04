@@ -329,6 +329,7 @@ export class AiService {
     async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string): Promise<any> {
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const puterToken = process.env.PUTER_TOKEN;
 
         const systemPrompt = `You are an immersive game engine for a ${genre} adventure. 
 Generate a JSON object representing the next state of the game based on the user's action and the previous history.
