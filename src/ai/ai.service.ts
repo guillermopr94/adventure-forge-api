@@ -134,7 +134,7 @@ export class AiService {
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
 
         const systemPrompt = `You are an immersive game engine for a ${genre} adventure. 
-Generate a JSON object representing the next state of the game.
+Generate a JSON object representing the next state of the game based on the user's action and the previous history.
 Schema:
 {
   "paragraphs": string[], // 1-3 paragraphs describing the scene and result of the user's action.
@@ -143,8 +143,6 @@ Schema:
   "stats_update": object // Optional. Numeric changes to player stats (e.g., { "HP": -10, "XP": 50 }).
 }
 Avoid markdown formatting, return ONLY the JSON object.`;
-
-        const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}`;
 
         const strategies = [
             { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash", type: "gemini" },
@@ -160,9 +158,11 @@ Avoid markdown formatting, return ONLY the JSON object.`;
                 
                 const result = await this.withRetry(async () => {
                     if (strategy.type === "gemini") {
-                        return await this.generateGeminiText(fullPrompt, history, gKey, strategy.model, true);
+                        // For Gemini, we pass systemPrompt separately if possible, or as first message
+                        return await this.generateGeminiText(prompt, history, gKey, strategy.model, true, systemPrompt);
                     } else {
-                        return await this.generatePollinationsText(`${fullPrompt}\nIMPORTANT: Respond ONLY with valid JSON.`, history, pKey, strategy.model);
+                        const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}\nIMPORTANT: Respond ONLY with valid JSON.`;
+                        return await this.generatePollinationsText(fullPrompt, history, pKey, strategy.model);
                     }
                 }, { retries: 2, baseDelay: 1000, name: strategy.name });
 
@@ -184,7 +184,7 @@ Avoid markdown formatting, return ONLY the JSON object.`;
 
     // --- Private Provider Implementations ---
 
-    private async generateGeminiText(prompt: string, history: any[], apiKey: string | undefined, model: string, isJson: boolean = false): Promise<string> {
+    private async generateGeminiText(prompt: string, history: any[], apiKey: string | undefined, model: string, isJson: boolean = false, systemInstruction?: string): Promise<string> {
         if (!apiKey) throw new Error("API Key is missing for Gemini");
 
         const { GoogleGenAI } = require("@google/genai");
@@ -195,10 +195,16 @@ Avoid markdown formatting, return ONLY the JSON object.`;
             generationConfig.responseMimeType = "application/json";
         }
 
-        const genModel = client.getGenerativeModel({ 
+        const modelOptions: any = { 
             model: model,
             generationConfig 
-        });
+        };
+
+        if (systemInstruction) {
+            modelOptions.systemInstruction = systemInstruction;
+        }
+
+        const genModel = client.getGenerativeModel(modelOptions);
 
         // Use native history format if available
         if (history && Array.isArray(history) && history.length > 0) {
@@ -209,11 +215,14 @@ Avoid markdown formatting, return ONLY the JSON object.`;
             }));
 
             // Check if the last message in history is the same as the current prompt
-            // To avoid duplication
+            // To avoid duplication. If the frontend already appended the prompt to history,
+            // we don't want to append it again here.
             const lastMsg = contents[contents.length - 1];
+            
             if (lastMsg && lastMsg.role === 'user' && lastMsg.parts[0].text === prompt) {
-                // If it's already there, just use the history up to the last message
-                // and call generateContent on the chat session or use the whole history.
+                // Remove the last message from contents to use it as the 'message' in generateContent
+                // OR just call generateContent with the whole history.
+                // The most reliable way with Gemini SDK is to pass the history as 'contents'.
                 const result = await genModel.generateContent({ contents });
                 const response = await result.response;
                 return response.text();
