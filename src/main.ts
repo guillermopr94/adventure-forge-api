@@ -15,6 +15,7 @@ async function bootstrap() {
 
     console.log(`Application is running on: ${await app.getUrl()}`);
     console.log(`[Bootstrap] MONGO_URI: ${process.env.MONGO_URI ? 'Defined' : 'Undefined'}`);
+    // Trigger redeploy - DB is active again (Feb 4)
     if (process.env.MONGO_URI) {
         // Log veiled URI for safety
         const veiledUri = process.env.MONGO_URI.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@');
