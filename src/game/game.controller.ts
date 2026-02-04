@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards, UnauthorizedException, Sse, Headers, Header, MessageEvent, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards, UnauthorizedException, Sse, Headers, Header, MessageEvent, Req, Res } from '@nestjs/common';
 import { GameService } from './game.service';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -59,10 +59,10 @@ export class GameController {
         @Body() body: { prompt: string, history: any[], voice: string, genre: string, lang: string },
         @Headers('x-google-api-key') gKey: string,
         @Headers('x-pollinations-token') pKey: string,
-        @Headers('x-openai-api-key') oKey: string
-    ): Observable<MessageEvent> {
-        // streamTurn might also benefit from userId for history/stats in the future
-        return this.gameService.streamTurn(
+        @Headers('x-openai-api-key') oKey: string,
+        @Res() res: any
+    ) {
+        const stream$ = this.gameService.streamTurn(
             body.prompt,
             body.history,
             body.voice,
@@ -71,8 +71,30 @@ export class GameController {
             gKey || process.env.GOOGLE_API_KEY,
             pKey || process.env.POLLINATIONS_TOKEN,
             oKey || process.env.OPENAI_API_KEY
-        ).pipe(
-            map((data: any) => ({ data: data } as MessageEvent))
         );
+
+        const subscription = stream$.subscribe({
+            next: (data: any) => {
+                res.write(`data: ${JSON.stringify(data)}\n\n`);
+            },
+            error: (err: any) => {
+                console.error('Stream error:', err);
+                // Try to send error to client if headers sent, otherwise 500
+                if (!res.headersSent) {
+                    res.status(500).send(err.message);
+                } else {
+                    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+                    res.end();
+                }
+            },
+            complete: () => {
+                res.end();
+            }
+        });
+
+        // Handle client disconnect
+        req.on('close', () => {
+            subscription.unsubscribe();
+        });
     }
 }
