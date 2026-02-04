@@ -16,23 +16,25 @@ class SaveGameDto {
 }
 
 @Controller('game')
-@UseGuards(AuthGuard)
 export class GameController {
     constructor(private readonly gameService: GameService) { }
 
     @Post('save')
+    @UseGuards(AuthGuard)
     async saveGame(@Req() req: any, @Body() body: SaveGameDto) {
         const userId = req.user.googleId;
         return this.gameService.saveGame(userId, body);
     }
 
     @Get('list')
+    @UseGuards(AuthGuard)
     async listGames(@Req() req: any) {
         const userId = req.user.googleId;
         return this.gameService.listGames(userId);
     }
 
     @Get('load')
+    @UseGuards(AuthGuard)
     async loadGame(@Req() req: any, @Query('saveId') saveId: string) {
         const userId = req.user.googleId;
         if (!saveId) throw new UnauthorizedException('Save ID required');
@@ -40,6 +42,7 @@ export class GameController {
     }
 
     @Post('delete')
+    @UseGuards(AuthGuard)
     async deleteGame(@Req() req: any, @Body() body: { saveId: string }) {
         const userId = req.user.googleId;
         if (!body.saveId) throw new UnauthorizedException('Save ID required');
