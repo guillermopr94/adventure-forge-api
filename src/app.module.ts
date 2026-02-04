@@ -8,15 +8,15 @@ import { GameModule } from './game/game.module';
 @Module({
     imports: [
         ConfigModule.forRoot(),
-        MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://localhost/adventure-forge', {
-            serverSelectionTimeoutMS: 5000, // Timeout después de 5 segundos
-            socketTimeoutMS: 10000,
-            connectTimeoutMS: 10000,
-            // No bloquear el inicio si MongoDB falla
-            // La app funcionará para /game/stream pero fallará para saves/loads
-        }),
+        // MongoDB disabled until we have a valid cluster
+        // MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://localhost:27017/adventure-forge', {
+        //     serverSelectionTimeoutMS: 5000,
+        //     socketTimeoutMS: 10000,
+        //     connectTimeoutMS: 10000,
+        // }),
         AiModule,
-        AuthModule,
+        // AuthModule disabled (requires MongoDB)
+        // AuthModule,
         GameModule
     ],
     controllers: [],

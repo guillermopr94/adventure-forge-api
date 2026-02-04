@@ -187,8 +187,8 @@ Avoid markdown formatting, return ONLY the JSON object.`;
     private async generateGeminiText(prompt: string, history: any[], apiKey: string | undefined, model: string, isJson: boolean = false, systemInstruction?: string): Promise<string> {
         if (!apiKey) throw new Error("API Key is missing for Gemini");
 
-        const { GoogleGenAI } = require("@google/genai");
-        const client = new GoogleGenAI({ apiKey });
+        const { GoogleGenerativeAI } = require("@google/genai");
+        const client = new GoogleGenerativeAI(apiKey);
         
         const generationConfig: any = {};
         if (isJson) {
@@ -196,7 +196,6 @@ Avoid markdown formatting, return ONLY the JSON object.`;
         }
 
         const modelOptions: any = { 
-            model: model,
             generationConfig 
         };
 
@@ -204,7 +203,7 @@ Avoid markdown formatting, return ONLY the JSON object.`;
             modelOptions.systemInstruction = systemInstruction;
         }
 
-        const genModel = client.getGenerativeModel(modelOptions);
+        const genModel = client.getGenerativeModel({ model, ...modelOptions });
 
         // Use native history format if available
         if (history && Array.isArray(history) && history.length > 0) {

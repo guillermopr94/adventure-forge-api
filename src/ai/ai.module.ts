@@ -4,7 +4,10 @@ import { AiService } from './ai.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-    imports: [AuthModule],
+    imports: [
+        // AuthModule disabled (requires MongoDB)
+        // AuthModule
+    ],
     controllers: [AiController],
     providers: [AiService],
     exports: [AiService],
