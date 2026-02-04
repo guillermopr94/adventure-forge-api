@@ -1,7 +1,9 @@
-import { Controller, Post, Body, Headers, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Headers, BadRequestException, UseGuards } from '@nestjs/common';
 import { AiService } from './ai.service';
+import { AuthGuard } from '../auth/auth.guard';
 
 @Controller('ai')
+@UseGuards(AuthGuard)
 export class AiController {
     constructor(private readonly aiService: AiService) { }
 
