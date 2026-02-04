@@ -40,10 +40,9 @@ export class AiService {
 
         // Define prioritized strategies with fallback logic
         const strategies = [
-            { name: "Gemini 2.5 Flash", model: "gemini-2.5-flash", type: "gemini" },
-            { name: "Gemini 2.5 Flash Lite", model: "gemini-2.5-flash-lite", type: "gemini" },
-            { name: "Gemini 1.5 Pro", model: "gemini-1.5-pro", type: "gemini" },
-            { name: "Gemini 1.5 Flash", model: "gemini-1.5-flash", type: "gemini" },
+            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash-exp", type: "gemini" },
+            { name: "Gemini 1.5 Flash Latest", model: "gemini-1.5-flash-latest", type: "gemini" },
+            { name: "Gemini 1.5 Pro Latest", model: "gemini-1.5-pro-latest", type: "gemini" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
             { name: "Pollinations (Mistral)", model: "mistral", type: "pollinations" },
             { name: "Pollinations (SearchGPT)", model: "searchgpt", type: "pollinations" },
@@ -145,8 +144,9 @@ Schema:
 Avoid markdown formatting, return ONLY the JSON object.`;
 
         const strategies = [
-            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash", type: "gemini" },
-            { name: "Gemini 1.5 Flash", model: "gemini-1.5-flash", type: "gemini" },
+            { name: "Gemini 2.0 Flash", model: "gemini-2.0-flash-exp", type: "gemini" },
+            { name: "Gemini 1.5 Flash Latest", model: "gemini-1.5-flash-latest", type: "gemini" },
+            { name: "Gemini 1.5 Pro Latest", model: "gemini-1.5-pro-latest", type: "gemini" },
             { name: "Pollinations (OpenAI)", model: "openai", type: "pollinations" },
         ];
 
@@ -187,64 +187,49 @@ Avoid markdown formatting, return ONLY the JSON object.`;
     private async generateGeminiText(prompt: string, history: any[], apiKey: string | undefined, model: string, isJson: boolean = false, systemInstruction?: string): Promise<string> {
         if (!apiKey) throw new Error("API Key is missing for Gemini");
 
-        const { GoogleGenerativeAI } = require("@google/genai");
-        const client = new GoogleGenerativeAI(apiKey);
+        const { GoogleGenAI } = require("@google/genai");
+        const client = new GoogleGenAI({ apiKey });
         
-        const generationConfig: any = {};
+        // Build config for the request
+        const config: any = { model };
+        
         if (isJson) {
-            generationConfig.responseMimeType = "application/json";
+            config.generationConfig = { responseMimeType: "application/json" };
         }
-
-        const modelOptions: any = { 
-            generationConfig 
-        };
 
         if (systemInstruction) {
-            modelOptions.systemInstruction = systemInstruction;
+            config.systemInstruction = systemInstruction;
         }
 
-        const genModel = client.getGenerativeModel({ model, ...modelOptions });
+        // Build contents array
+        const contents: any[] = [];
 
-        // Use native history format if available
+        // Add history if available
         if (history && Array.isArray(history) && history.length > 0) {
-            // Filter and format history for Gemini SDK
-            const contents = history.map(msg => ({
-                role: msg.role === 'user' ? 'user' : 'model',
-                parts: msg.parts.map((p: any) => ({ text: p.text }))
-            }));
-
-            // Check if the last message in history is the same as the current prompt
-            // To avoid duplication. If the frontend already appended the prompt to history,
-            // we don't want to append it again here.
-            const lastMsg = contents[contents.length - 1];
-            
-            if (lastMsg && lastMsg.role === 'user' && lastMsg.parts[0].text === prompt) {
-                // Remove the last message from contents to use it as the 'message' in generateContent
-                // OR just call generateContent with the whole history.
-                // The most reliable way with Gemini SDK is to pass the history as 'contents'.
-                const result = await genModel.generateContent({ contents });
-                const response = await result.response;
-                return response.text();
-            } else {
-                // Append current prompt to history
+            history.forEach(msg => {
                 contents.push({
-                    role: 'user',
-                    parts: [{ text: prompt }]
+                    role: msg.role === 'user' ? 'user' : 'model',
+                    parts: msg.parts.map((p: any) => ({ text: p.text }))
                 });
-                const result = await genModel.generateContent({ contents });
-                const response = await result.response;
-                return response.text();
-            }
+            });
         }
 
-        // Fallback to single-turn if no history
-        const result = await genModel.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        // Add current prompt
+        contents.push({
+            role: 'user',
+            parts: [{ text: prompt }]
+        });
+
+        config.contents = contents;
+
+        // Call the new API
+        const result = await client.models.generateContent(config);
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!text) {
             throw new Error("Empty response from Gemini");
         }
+
         return text;
     }
 
