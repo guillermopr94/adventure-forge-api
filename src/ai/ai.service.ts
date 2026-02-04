@@ -291,12 +291,6 @@ export class AiService {
         return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
-    // ... (generateGameTurn omitted) ...
-
-
-
-    // ...
-
     private async generatePollinationsImage(prompt: string, model: string = 'flux'): Promise<string> {
         const encodedPrompt = encodeURIComponent(prompt);
         const seed = Math.floor(Math.random() * 10000);
@@ -602,5 +596,3 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
         return "Voice: Clear Narrator. Tone: Engaging and natural.";
     }
 }
-/ /   T r i g g e r i n g   r e d e p l o y  
- 
