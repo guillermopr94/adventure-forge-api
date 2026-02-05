@@ -9,7 +9,7 @@ export class AiService {
      */
     private async withRetry<T>(
         operation: () => Promise<T>,
-        options: { retries: number; baseDelay: number; name: string; onRetry?: (attempt: number, error: any) => void } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
+        options: { retries: number; baseDelay: number; name: string; onRetry?: (attempt: number, error: any) => void; onFallback?: (error: any) => void } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
     ): Promise<T> {
         let lastError: any;
         for (let i = 0; i < options.retries; i++) {
@@ -21,6 +21,7 @@ export class AiService {
                 const isRetryable = status === 429 || status >= 500 || error.message?.toLowerCase().includes('fetch') || error.message?.toLowerCase().includes('timeout') || error.message?.toLowerCase().includes('network');
 
                 if (!isRetryable || i === options.retries - 1) {
+                    if (options.onFallback) options.onFallback(error);
                     throw error;
                 }
 
@@ -36,7 +37,7 @@ export class AiService {
 
     // --- Public "Smart" Methods ---
 
-    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void): Promise<string> {
+    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
         const errors: string[] = [];
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
@@ -73,7 +74,8 @@ export class AiService {
                     retries: 2, 
                     baseDelay: 1000, 
                     name: strategy.name,
-                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt)
+                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt),
+                    onFallback: () => onFallback?.(strategy.name)
                 });
 
             } catch (e: any) {
@@ -328,7 +330,7 @@ export class AiService {
         return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
-    async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void): Promise<any> {
+    async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
         const puterToken = process.env.PUTER_TOKEN;
@@ -383,7 +385,8 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                     retries: 2, 
                     baseDelay: 1000, 
                     name: strategy.name,
-                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt)
+                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt),
+                    onFallback: () => onFallback?.(strategy.name)
                 });
 
                 try {

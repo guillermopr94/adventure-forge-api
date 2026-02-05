@@ -69,7 +69,15 @@ export class GameService {
                         });
                     };
 
-                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey, onRetry);
+                    const onFallback = (strategy: string) => {
+                        subscriber.next({ 
+                            type: 'status', 
+                            message: `Falling back from ${strategy}...`,
+                            is_fallback: true 
+                        });
+                    };
+
+                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey, onRetry, onFallback);
 
                     const paragraphs = turnData.paragraphs || [];
                     const options = turnData.options || [];
