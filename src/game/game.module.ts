@@ -8,11 +8,9 @@ import { AuthModule } from '../auth/auth.module';
 
 @Module({
     imports: [
-        // MongoDB disabled until we have a valid cluster
-        // MongooseModule.forFeature([{ name: GameSave.name, schema: GameSaveSchema }]),
+        MongooseModule.forFeature([{ name: GameSave.name, schema: GameSaveSchema }]),
         AiModule,
-        // AuthModule disabled (requires MongoDB)
-        // AuthModule
+        AuthModule
     ],
     controllers: [GameController],
     providers: [GameService],
