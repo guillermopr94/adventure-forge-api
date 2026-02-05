@@ -8,15 +8,13 @@ import { GameModule } from './game/game.module';
 @Module({
     imports: [
         ConfigModule.forRoot(),
-        // MongoDB disabled until we have a valid cluster
-        // MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://localhost:27017/adventure-forge', {
-        //     serverSelectionTimeoutMS: 5000,
-        //     socketTimeoutMS: 10000,
-        //     connectTimeoutMS: 10000,
-        // }),
+        MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://localhost:27017/adventure-forge', {
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 10000,
+            connectTimeoutMS: 10000,
+        }),
         AiModule,
-        // AuthModule disabled (requires MongoDB)
-        // AuthModule,
+        AuthModule,
         GameModule
     ],
     controllers: [],

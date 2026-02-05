@@ -19,36 +19,35 @@ class SaveGameDto {
 export class GameController {
     constructor(private readonly gameService: GameService) { }
 
-    // MongoDB endpoints temporarily disabled - will be re-enabled once we have a valid cluster
-    // @Post('save')
-    // @UseGuards(AuthGuard)
-    // async saveGame(@Req() req: any, @Body() body: SaveGameDto) {
-    //     const userId = req.user.googleId;
-    //     return this.gameService.saveGame(userId, body);
-    // }
+    @Post('save')
+    @UseGuards(AuthGuard)
+    async saveGame(@Req() req: any, @Body() body: SaveGameDto) {
+        const userId = req.user.googleId;
+        return this.gameService.saveGame(userId, body);
+    }
 
-    // @Get('list')
-    // @UseGuards(AuthGuard)
-    // async listGames(@Req() req: any) {
-    //     const userId = req.user.googleId;
-    //     return this.gameService.listGames(userId);
-    // }
+    @Get('list')
+    @UseGuards(AuthGuard)
+    async listGames(@Req() req: any) {
+        const userId = req.user.googleId;
+        return this.gameService.listGames(userId);
+    }
 
-    // @Get('load')
-    // @UseGuards(AuthGuard)
-    // async loadGame(@Req() req: any, @Query('saveId') saveId: string) {
-    //     const userId = req.user.googleId;
-    //     if (!saveId) throw new UnauthorizedException('Save ID required');
-    //     return this.gameService.loadGame(saveId, userId);
-    // }
+    @Get('load')
+    @UseGuards(AuthGuard)
+    async loadGame(@Req() req: any, @Query('saveId') saveId: string) {
+        const userId = req.user.googleId;
+        if (!saveId) throw new UnauthorizedException('Save ID required');
+        return this.gameService.loadGame(saveId, userId);
+    }
 
-    // @Post('delete')
-    // @UseGuards(AuthGuard)
-    // async deleteGame(@Req() req: any, @Body() body: { saveId: string }) {
-    //     const userId = req.user.googleId;
-    //     if (!body.saveId) throw new UnauthorizedException('Save ID required');
-    //     return this.gameService.deleteSave(body.saveId, userId);
-    // }
+    @Post('delete')
+    @UseGuards(AuthGuard)
+    async deleteGame(@Req() req: any, @Body() body: { saveId: string }) {
+        const userId = req.user.googleId;
+        if (!body.saveId) throw new UnauthorizedException('Save ID required');
+        return this.gameService.deleteSave(body.saveId, userId);
+    }
 
     @Post('stream')
     @Header('Content-Type', 'text/event-stream')

@@ -8,48 +8,43 @@ import { AiService } from '../ai/ai.service';
 @Injectable()
 export class GameService {
     constructor(
-        // MongoDB disabled until we have a valid cluster
-        // @InjectModel(GameSave.name) private gameSaveModel: Model<GameSaveDocument>,
+        @InjectModel(GameSave.name) private gameSaveModel: Model<GameSaveDocument>,
         private aiService: AiService
     ) { }
 
-    // MongoDB endpoints temporarily disabled - will be re-enabled once we have a valid cluster
-    // async saveGame(userId: string, saveData: Partial<GameSave> & { _id?: string }) {
-    //     console.log(`[GameService] Saving game for user ${userId}. ID: ${saveData._id}`);
-    //     if (saveData.currentImages) {
-    //         console.log(`[GameService] Saving ${saveData.currentImages.length} cinematic images.`);
-    //     }
+    async saveGame(userId: string, saveData: Partial<GameSave> & { _id?: string }) {
+        console.log(`[GameService] Saving game for user ${userId}. ID: ${saveData._id}`);
+        
+        if (saveData._id) {
+            console.log(`[GameService] Updating existing save ${saveData._id}`);
+            return this.gameSaveModel.findByIdAndUpdate(
+                saveData._id,
+                { ...saveData, userId },
+                { new: true }
+            );
+        } else {
+            console.log(`[GameService] Creating new save`);
+            const newSave = new this.gameSaveModel({ ...saveData, userId });
+            const result = await newSave.save();
+            console.log(`[GameService] Save complete. New ID: ${result._id}`);
+            return result;
+        }
+    }
 
-    //     if (saveData._id) {
-    //         console.log(`[GameService] Updating existing save ${saveData._id}`);
-    //         return this.gameSaveModel.findByIdAndUpdate(
-    //             saveData._id,
-    //             { ...saveData, userId },
-    //             { new: true }
-    //         );
-    //     } else {
-    //         console.log(`[GameService] Creating new save`);
-    //         const newSave = new this.gameSaveModel({ ...saveData, userId });
-    //         const result = await newSave.save();
-    //         console.log(`[GameService] Save complete. New ID: ${result._id}`);
-    //         return result;
-    //     }
-    // }
+    async listGames(userId: string) {
+        console.log(`[GameService] Listing games for user ${userId}`);
+        const results = await this.gameSaveModel.find({ userId }).sort({ updatedAt: -1 }).select('_id genreKey updatedAt createdAt');
+        console.log(`[GameService] Found ${results.length} games`);
+        return results;
+    }
 
-    // async listGames(userId: string) {
-    //     console.log(`[GameService] Listing games for user ${userId}`);
-    //     const results = await this.gameSaveModel.find({ userId }).sort({ updatedAt: -1 }).select('_id genreKey updatedAt createdAt');
-    //     console.log(`[GameService] Found ${results.length} games`);
-    //     return results;
-    // }
+    async loadGame(saveId: string, userId: string) {
+        return this.gameSaveModel.findOne({ _id: saveId, userId });
+    }
 
-    // async loadGame(saveId: string, userId: string) {
-    //     return this.gameSaveModel.findOne({ _id: saveId, userId });
-    // }
-
-    // async deleteSave(saveId: string, userId: string) {
-    //     return this.gameSaveModel.findOneAndDelete({ _id: saveId, userId });
-    // }
+    async deleteSave(saveId: string, userId: string) {
+        return this.gameSaveModel.findOneAndDelete({ _id: saveId, userId });
+    }
 
     // --- Streaming Logic ---
     streamTurn(prompt: string, history: any[], voice: string, genre: string, lang: string, gKey?: string, pKey?: string, oKey?: string): any {
