@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, BadRequestException, UseGuards } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AuthGuard } from '../auth/auth.guard';
 
@@ -117,5 +117,10 @@ export class AiController {
         return {
             image: await this.aiService.generateImage(prompt, gKey)
         };
+    }
+
+    @Get('quota-stats')
+    async getQuotaStats() {
+        return this.aiService.getQuotaStats();
     }
 }

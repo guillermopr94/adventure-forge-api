@@ -2,23 +2,77 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AiService {
+    private quotaLogs: { timestamp: number; provider: string; model: string; action: string; status: 'success' | 'error'; error?: string }[] = [];
+    
     constructor() { }
+
+    private logQuota(provider: string, model: string, action: string, status: 'success' | 'error', error?: string) {
+        const log = { timestamp: Date.now(), provider, model, action, status, error };
+        this.quotaLogs.push(log);
+        
+        // Keep only last 100 logs in memory
+        if (this.quotaLogs.length > 100) {
+            this.quotaLogs.shift();
+        }
+
+        // Log to console in development
+        if (process.env.NODE_ENV !== 'production') {
+            const emoji = status === 'success' ? '✅' : '❌';
+            console.log(`[QUOTA] ${emoji} ${provider}/${model} - ${action} - ${status}${error ? ` (${error})` : ''}`);
+        }
+    }
+
+    getQuotaStats() {
+        const now = Date.now();
+        const last24h = this.quotaLogs.filter(log => now - log.timestamp < 24 * 60 * 60 * 1000);
+        
+        return {
+            total: last24h.length,
+            success: last24h.filter(log => log.status === 'success').length,
+            errors: last24h.filter(log => log.status === 'error').length,
+            byProvider: last24h.reduce((acc, log) => {
+                acc[log.provider] = (acc[log.provider] || 0) + 1;
+                return acc;
+            }, {} as Record<string, number>)
+        };
+    }
 
     /**
      * Resilient execution wrapper with exponential retry.
      */
     private async withRetry<T>(
         operation: () => Promise<T>,
-        options: { retries: number; baseDelay: number; name: string; onRetry?: (attempt: number, error: any) => void; onFallback?: (error: any) => void } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
+        options: { 
+            retries: number; 
+            baseDelay: number; 
+            name: string; 
+            provider?: string;
+            model?: string;
+            action?: string;
+            onRetry?: (attempt: number, error: any) => void; 
+            onFallback?: (error: any) => void 
+        } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
     ): Promise<T> {
         let lastError: any;
         for (let i = 0; i < options.retries; i++) {
             try {
-                return await operation();
+                const result = await operation();
+                
+                // Log successful operation
+                if (options.provider && options.model && options.action) {
+                    this.logQuota(options.provider, options.model, options.action, 'success');
+                }
+                
+                return result;
             } catch (error: any) {
                 lastError = error;
                 const status = error.status || (error.response && error.response.status) || (error instanceof Response ? error.status : 0);
                 const isRetryable = status === 429 || status >= 500 || error.message?.toLowerCase().includes('fetch') || error.message?.toLowerCase().includes('timeout') || error.message?.toLowerCase().includes('network');
+
+                // Log error
+                if (options.provider && options.model && options.action) {
+                    this.logQuota(options.provider, options.model, options.action, 'error', error.message);
+                }
 
                 if (!isRetryable || i === options.retries - 1) {
                     if (options.onFallback) options.onFallback(error);
@@ -74,6 +128,9 @@ export class AiService {
                     retries: 2, 
                     baseDelay: 1000, 
                     name: strategy.name,
+                    provider: strategy.type,
+                    model: strategy.model,
+                    action: 'generate_text',
                     onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt),
                     onFallback: () => onFallback?.(strategy.name)
                 });
@@ -385,6 +442,9 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                     retries: 2, 
                     baseDelay: 1000, 
                     name: strategy.name,
+                    provider: strategy.type,
+                    model: strategy.model,
+                    action: 'game_turn',
                     onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt),
                     onFallback: () => onFallback?.(strategy.name)
                 });
