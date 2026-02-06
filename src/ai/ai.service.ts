@@ -404,18 +404,35 @@ export class AiService {
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
         const puterToken = process.env.PUTER_TOKEN;
 
-        const systemPrompt = `You are an immersive game engine for a ${genre} adventure. 
-Generate a JSON object representing the next state of the game based on the user's action and the previous history.
+        const systemPrompt = `You are an immersive game engine for a ${genre} adventure.
+Your task: Generate ONLY a JSON object for the next game state. Nothing else.
 
-JSON Schema to follow:
+STRICT RULES:
+1. Output ONLY valid JSON - no text before or after
+2. Start with { and end with }
+3. NO markdown code blocks (no \`\`\`)
+4. NO conversational text, greetings, or explanations
+5. NO asterisks for emphasis (*word* is FORBIDDEN) - use plain text
+6. Write narrative in clean, flowing prose without formatting symbols
+
+REQUIRED JSON SCHEMA:
 {
-  "paragraphs": ["description of what happens"],
-  "options": ["choice 1", "choice 2", "choice 3"],
-  "inventory_changes": [],
-  "stats_update": {}
+  "paragraphs": ["First paragraph of narrative...", "Second paragraph if needed..."],
+  "options": ["Action choice 1", "Action choice 2", "Action choice 3"],
+  "inventory_changes": ["+item gained", "-item lost"],
+  "stats_update": {"health": 100, "gold": 50}
 }
 
-IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN. START YOUR RESPONSE WITH '{' AND END WITH '}'.`;
+FIELD REQUIREMENTS:
+- paragraphs: Array of 1-3 strings. Each string is a narrative paragraph (50-150 words). Plain text only, no formatting.
+- options: Array of 2-4 strings. Each is a short action the player can take (5-15 words).
+- inventory_changes: Array of strings with +/- prefix, or empty array [].
+- stats_update: Object with stat changes, or empty object {}.
+
+EXAMPLE OUTPUT:
+{"paragraphs":["The ancient door creaks open, revealing a vast chamber lit by flickering torches."],"options":["Enter cautiously","Search for traps","Call out into the darkness"],"inventory_changes":[],"stats_update":{}}
+
+Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() directly.`;
 
         const strategies = [
             { name: "Gemini 2.5 Flash", model: "models/gemini-2.5-flash", type: "gemini" },
@@ -486,6 +503,9 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
         try {
             let result = rawResult;
 
+            // 0. Strip markdown code blocks FIRST (very common)
+            result = result.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+
             // 1. Strip common AI preambles (before any JSON)
             const preamblePatterns = [
                 /^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me|i'?ll\s+(?:create|generate)|sure[,!]?\s*(?:here)?|okay[,!]?\s*(?:here)?|certainly[,!]?\s*)/i,
@@ -528,13 +548,23 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                     .replace(/,\s*}/g, '}')  // Trailing commas
                     .replace(/,\s*]/g, ']')  // Trailing commas in arrays
                     .replace(/'/g, '"')       // Single quotes to double
-                    .replace(/[\r\n]+/g, ' '); // Newlines to spaces
+                    .replace(/[\r\n]+/g, ' ') // Newlines to spaces
+                    .replace(/\t/g, ' ')      // Tabs to spaces
+                    .replace(/\\/g, '\\\\')   // Escape backslashes
+                    .replace(/[\x00-\x1F]/g, ' '); // Control characters to spaces
                 
                 try {
                     parsed = JSON.parse(fixedJson);
                     console.log(`[AiService] JSON fixed and parsed successfully`);
                 } catch {
-                    console.warn(`[AiService] JSON Parse failed even after fixes. Raw: ${jsonPart.substring(0, 100)}...`);
+                    // Last resort: try to extract with regex
+                    console.warn(`[AiService] JSON Parse failed. Attempting regex extraction...`);
+                    const extracted = this.extractFieldsWithRegex(rawResult);
+                    if (extracted) {
+                        console.log(`[AiService] Regex extraction succeeded`);
+                        return this.normalizeGameTurn(extracted);
+                    }
+                    console.warn(`[AiService] All parsing failed. Raw: ${jsonPart.substring(0, 100)}...`);
                     return this.wrapTextAsGameTurn(rawResult);
                 }
             }
@@ -542,11 +572,77 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
             // 4. Normalize the structure
             const normalized = this.normalizeGameTurn(parsed);
             
+            // 5. Post-process: clean markdown artifacts from text fields
+            normalized.paragraphs = normalized.paragraphs.map((p: string) => this.cleanMarkdownArtifacts(p));
+            normalized.options = normalized.options.map((o: string) => this.cleanMarkdownArtifacts(o));
+            
             console.log(`[AiService] Successfully parsed game turn from ${strategyName}`);
             return normalized;
 
         } catch (e: any) {
             console.error(`[AiService] parseGameTurnResponse exception: ${e.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Clean markdown artifacts from AI text, converting to plain readable text.
+     * Converts *text* and **text** to emphasis without symbols.
+     */
+    private cleanMarkdownArtifacts(text: string): string {
+        if (!text || typeof text !== 'string') return text;
+        
+        return text
+            // Convert **bold** to just the text (could add HTML later if needed)
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            // Convert *italic* to just the text
+            .replace(/\*([^*]+)\*/g, '$1')
+            // Convert __underline__ to just the text
+            .replace(/__([^_]+)__/g, '$1')
+            // Convert _italic_ to just the text
+            .replace(/_([^_]+)_/g, '$1')
+            // Remove leftover single asterisks that aren't paired
+            .replace(/(?<!\*)\*(?!\*)/g, '')
+            // Clean up multiple spaces
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /**
+     * Last resort: extract fields using regex patterns when JSON is malformed.
+     */
+    private extractFieldsWithRegex(rawText: string): any | null {
+        try {
+            const result: any = { paragraphs: [], options: [] };
+            
+            // Try to find paragraphs array content
+            const paragraphsMatch = rawText.match(/"paragraphs"\s*:\s*\[([^\]]+)\]/i);
+            if (paragraphsMatch) {
+                const content = paragraphsMatch[1];
+                // Extract quoted strings
+                const strings = content.match(/"([^"]+)"/g);
+                if (strings) {
+                    result.paragraphs = strings.map(s => s.replace(/^"|"$/g, ''));
+                }
+            }
+            
+            // Try to find options array content
+            const optionsMatch = rawText.match(/"options"\s*:\s*\[([^\]]+)\]/i);
+            if (optionsMatch) {
+                const content = optionsMatch[1];
+                const strings = content.match(/"([^"]+)"/g);
+                if (strings) {
+                    result.options = strings.map(s => s.replace(/^"|"$/g, ''));
+                }
+            }
+            
+            // Only return if we got something useful
+            if (result.paragraphs.length > 0 || result.options.length > 0) {
+                return result;
+            }
+            
+            return null;
+        } catch {
             return null;
         }
     }
