@@ -601,8 +601,8 @@ Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() direct
             .replace(/__([^_]+)__/g, '$1')
             // Convert _italic_ to just the text
             .replace(/_([^_]+)_/g, '$1')
-            // Remove leftover single asterisks that aren't paired
-            .replace(/(?<!\*)\*(?!\*)/g, '')
+            // Remove leftover single asterisks (simplified - avoids lookbehind for compatibility)
+            .replace(/([^*])\*([^*])/g, '$1$2')
             // Clean up multiple spaces
             .replace(/\s+/g, ' ')
             .trim();
