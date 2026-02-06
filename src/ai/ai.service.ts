@@ -268,9 +268,21 @@ export class AiService {
             }
         }
 
+        // 3. Try HuggingFace Inference API (FREE - 1000 requests/day)
+        const hfToken = process.env.HUGGINGFACE_TOKEN;
+        if (hfToken) {
+            try {
+                return await this.withRetry(() => this.generateHuggingFaceImage(prompt, hfToken),
+                    { retries: 2, baseDelay: 2000, name: 'HuggingFace SDXL' });
+            } catch (e: any) {
+                console.warn("[AiService] HuggingFace Image failed:", e.message);
+                errors.push(`HuggingFace: ${e.message}`);
+            }
+        }
+
         const pKey = process.env.POLLINATIONS_TOKEN;
 
-        // 3. Try Pollinations (Flux) - Main Strategy
+        // 4. Try Pollinations (Flux) - Main Strategy
         try {
             return await this.withRetry(() => this.generatePollinationsImage(prompt, 'flux'),
                 { retries: 2, baseDelay: 2000, name: 'Pollinations Flux' });
@@ -279,7 +291,7 @@ export class AiService {
             errors.push(`Pollinations (Flux): ${e.message}`);
         }
 
-        // 4. Try Pollinations (Turbo) - High Availability Fallback
+        // 5. Try Pollinations (Turbo) - High Availability Fallback
         try {
             return await this.withRetry(() => this.generatePollinationsImage(prompt, 'turbo'),
                 { retries: 2, baseDelay: 2000, name: 'Pollinations Turbo' });
@@ -288,7 +300,7 @@ export class AiService {
             errors.push(`Pollinations (Turbo): ${e.message}`);
         }
 
-        // 5. Try Pollinations (Stable Diffusion XL) - Legacy Fallback
+        // 6. Try Pollinations (Stable Diffusion XL) - Legacy Fallback
         try {
             return await this.withRetry(() => this.generatePollinationsImage(prompt, 'stable-diffusion-xl'),
                 { retries: 1, baseDelay: 1000, name: 'Pollinations SDXL' });
@@ -297,7 +309,7 @@ export class AiService {
             errors.push(`Pollinations (SDXL): ${e.message}`);
         }
 
-        // 6. Try Legacy Pollinations Endpoint (No Token Required)
+        // 7. Try Legacy Pollinations Endpoint (No Token Required)
         try {
             return await this.withRetry(() => this.generateLegacyPollinationsImage(prompt),
                 { retries: 1, baseDelay: 1000, name: 'Legacy Pollinations' });
@@ -660,7 +672,79 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
         throw new Error("No image data in Gemini response");
     }
 
+    /**
+     * HuggingFace Inference API - FREE tier (1000 requests/day)
+     * Uses SDXL for decent quality images with reasonable speed
+     */
+    private async generateHuggingFaceImage(prompt: string, token: string): Promise<string> {
+        // Primary: SDXL Base (best quality/speed balance)
+        // Fallback: OpenJourney (faster, MidJourney style)
+        const models = [
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            "prompthero/openjourney"
+        ];
 
+        let lastError: any;
+
+        for (const model of models) {
+            try {
+                console.log(`[AiService] Calling HuggingFace Inference: ${model}`);
+                
+                const response = await fetch(
+                    `https://api-inference.huggingface.co/models/${model}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${token}`,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ 
+                            inputs: prompt,
+                            parameters: {
+                                width: 512,
+                                height: 768  // Portrait mode for mobile
+                            }
+                        }),
+                    }
+                );
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    // Check for model loading (503) - common with HF free tier
+                    if (response.status === 503) {
+                        console.warn(`[AiService] HuggingFace model ${model} is loading, trying next...`);
+                        lastError = new Error(`Model loading: ${errorText}`);
+                        continue;
+                    }
+                    throw new Error(`HuggingFace Status ${response.status}: ${errorText}`);
+                }
+
+                const contentType = response.headers.get('content-type') || '';
+                
+                // HF returns raw image bytes
+                if (contentType.includes('image')) {
+                    const buffer = await response.arrayBuffer();
+                    const base64 = Buffer.from(buffer).toString('base64');
+                    const mimeType = contentType.includes('png') ? 'image/png' : 'image/jpeg';
+                    return `data:${mimeType};base64,${base64}`;
+                }
+
+                // Sometimes returns JSON with error or base64
+                const json = await response.json();
+                if (json.error) {
+                    throw new Error(`HuggingFace Error: ${json.error}`);
+                }
+
+                throw new Error("Unexpected response format from HuggingFace");
+
+            } catch (e: any) {
+                console.warn(`[AiService] HuggingFace model ${model} failed:`, e.message);
+                lastError = e;
+            }
+        }
+
+        throw lastError || new Error("All HuggingFace models failed");
+    }
 
     private getStyleInstructions(genre: string): string {
         const lowerGenre = genre.toLowerCase();
