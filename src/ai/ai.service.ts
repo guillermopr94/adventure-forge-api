@@ -461,34 +461,192 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
                     onFallback: () => onFallback?.(strategy.name)
                 });
 
-                try {
-                    // Pre-process result to find the first '{' and last '}'
-                    const firstBrace = result.indexOf('{');
-                    const lastBrace = result.lastIndexOf('}');
-                    if (firstBrace !== -1 && lastBrace !== -1) {
-                        const jsonPart = result.substring(firstBrace, lastBrace + 1);
-                        return JSON.parse(jsonPart);
-                    }
-                    return JSON.parse(result);
-                } catch (parseError) {
-                    console.warn(`[AiService] JSON Parse failed for ${strategy.name}. Result: ${result.substring(0, 100)}...`);
-
-                    // Fallback: If it's pure text, try to wrap it in a JSON structure so the game doesn't crash
-                    if (!result.includes('{')) {
-                        console.warn(`[AiService] Result contains no JSON. Wrapping text in paragraphs.`);
-                        return {
-                            paragraphs: [result],
-                            options: ["Continue", "Look around", "Wait"]
-                        };
-                    }
-                    throw parseError;
+                // Use robust parser
+                const parsed = this.parseGameTurnResponse(result, strategy.name);
+                if (parsed) {
+                    return parsed;
                 }
+                
+                // If parsing failed, continue to next strategy
+                console.warn(`[AiService] Parsing failed for ${strategy.name}, trying next...`);
+                
             } catch (e: any) {
                 console.warn(`[AiService] Game Turn strategy ${strategy.name} failed: ${e.message}`);
             }
         }
 
         throw new Error("Failed to generate structured game turn with all providers.");
+    }
+
+    /**
+     * Robust parser for game turn responses.
+     * Handles various AI response formats, strips preambles, normalizes structure.
+     */
+    private parseGameTurnResponse(rawResult: string, strategyName: string): any | null {
+        try {
+            let result = rawResult;
+
+            // 1. Strip common AI preambles (before any JSON)
+            const preamblePatterns = [
+                /^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me|i'?ll\s+(?:create|generate)|sure[,!]?\s*(?:here)?|okay[,!]?\s*(?:here)?|certainly[,!]?\s*)/i,
+                /^.*?(?:la\s+escena|the\s+scene|your\s+(?:scene|adventure|story))[^{]*/i,
+                /^[^{]*?(?::\s*)/,  // Anything ending with colon before JSON
+            ];
+
+            for (const pattern of preamblePatterns) {
+                const match = result.match(pattern);
+                if (match && result.indexOf('{') > match[0].length - 20) {
+                    // Only strip if the preamble is actually before the JSON
+                    const jsonStart = result.indexOf('{');
+                    if (jsonStart > 0) {
+                        console.log(`[AiService] Stripping preamble: "${result.substring(0, Math.min(50, jsonStart))}..."`);
+                        result = result.substring(jsonStart);
+                    }
+                    break;
+                }
+            }
+
+            // 2. Extract JSON block (first { to last })
+            const firstBrace = result.indexOf('{');
+            const lastBrace = result.lastIndexOf('}');
+            
+            if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+                // No valid JSON structure found - wrap raw text
+                console.warn(`[AiService] No JSON found in response. Wrapping as paragraphs.`);
+                return this.wrapTextAsGameTurn(rawResult);
+            }
+
+            const jsonPart = result.substring(firstBrace, lastBrace + 1);
+            
+            // 3. Try to parse JSON
+            let parsed: any;
+            try {
+                parsed = JSON.parse(jsonPart);
+            } catch (jsonError) {
+                // Try to fix common JSON issues
+                let fixedJson = jsonPart
+                    .replace(/,\s*}/g, '}')  // Trailing commas
+                    .replace(/,\s*]/g, ']')  // Trailing commas in arrays
+                    .replace(/'/g, '"')       // Single quotes to double
+                    .replace(/[\r\n]+/g, ' '); // Newlines to spaces
+                
+                try {
+                    parsed = JSON.parse(fixedJson);
+                    console.log(`[AiService] JSON fixed and parsed successfully`);
+                } catch {
+                    console.warn(`[AiService] JSON Parse failed even after fixes. Raw: ${jsonPart.substring(0, 100)}...`);
+                    return this.wrapTextAsGameTurn(rawResult);
+                }
+            }
+
+            // 4. Normalize the structure
+            const normalized = this.normalizeGameTurn(parsed);
+            
+            console.log(`[AiService] Successfully parsed game turn from ${strategyName}`);
+            return normalized;
+
+        } catch (e: any) {
+            console.error(`[AiService] parseGameTurnResponse exception: ${e.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Normalize various response structures to our expected format
+     */
+    private normalizeGameTurn(parsed: any): any {
+        const result: any = {
+            paragraphs: [],
+            options: [],
+            inventory_changes: [],
+            stats_update: {}
+        };
+
+        // Handle paragraphs - can be string, array of strings, or nested
+        if (parsed.paragraphs) {
+            if (typeof parsed.paragraphs === 'string') {
+                result.paragraphs = [parsed.paragraphs];
+            } else if (Array.isArray(parsed.paragraphs)) {
+                result.paragraphs = parsed.paragraphs.map((p: any) => 
+                    typeof p === 'string' ? p : (p.text || p.content || JSON.stringify(p))
+                );
+            }
+        } else if (parsed.paragraph) {
+            result.paragraphs = [parsed.paragraph];
+        } else if (parsed.text) {
+            result.paragraphs = [parsed.text];
+        } else if (parsed.content) {
+            result.paragraphs = [parsed.content];
+        } else if (parsed.description) {
+            result.paragraphs = [parsed.description];
+        } else if (parsed.narrative) {
+            result.paragraphs = [parsed.narrative];
+        } else if (parsed.scene) {
+            result.paragraphs = [parsed.scene];
+        }
+
+        // Handle options - can be string, array of strings, or array of objects
+        if (parsed.options) {
+            if (typeof parsed.options === 'string') {
+                // Try to split by common separators
+                result.options = parsed.options.split(/[,;\n]/).map((o: string) => o.trim()).filter((o: string) => o.length > 0);
+            } else if (Array.isArray(parsed.options)) {
+                result.options = parsed.options.map((o: any) => {
+                    if (typeof o === 'string') return o;
+                    return o.text || o.label || o.choice || o.option || o.action || JSON.stringify(o);
+                });
+            }
+        } else if (parsed.choices) {
+            result.options = Array.isArray(parsed.choices) 
+                ? parsed.choices.map((c: any) => typeof c === 'string' ? c : (c.text || c.label || c.choice))
+                : [parsed.choices];
+        } else if (parsed.actions) {
+            result.options = Array.isArray(parsed.actions)
+                ? parsed.actions.map((a: any) => typeof a === 'string' ? a : (a.text || a.label || a.action))
+                : [parsed.actions];
+        }
+
+        // Ensure we always have options
+        if (!result.options || result.options.length === 0) {
+            result.options = ["Continue", "Look around", "Wait"];
+        }
+
+        // Ensure we always have paragraphs
+        if (!result.paragraphs || result.paragraphs.length === 0) {
+            result.paragraphs = ["The adventure continues..."];
+        }
+
+        // Copy over other fields if present
+        if (parsed.inventory_changes) result.inventory_changes = parsed.inventory_changes;
+        if (parsed.inventory) result.inventory_changes = parsed.inventory;
+        if (parsed.stats_update) result.stats_update = parsed.stats_update;
+        if (parsed.stats) result.stats_update = parsed.stats;
+
+        return result;
+    }
+
+    /**
+     * Wrap raw text (when no JSON found) into a valid game turn structure
+     */
+    private wrapTextAsGameTurn(rawText: string): any {
+        // Clean the text - remove common AI preambles
+        let cleanedText = rawText
+            .replace(/^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me)[^:]*:\s*/i, '')
+            .replace(/^.*?(?:la\s+escena|the\s+scene)[^:]*:\s*/i, '')
+            .trim();
+
+        // If still has preamble pattern, just take everything after first sentence that looks like preamble
+        const preambleEnd = cleanedText.search(/[.!?]\s+[A-ZÁÉÍÓÚ]/);
+        if (preambleEnd > 0 && preambleEnd < 100) {
+            cleanedText = cleanedText.substring(preambleEnd + 1).trim();
+        }
+
+        return {
+            paragraphs: [cleanedText || rawText],
+            options: ["Continue", "Look around", "Wait"],
+            inventory_changes: [],
+            stats_update: {}
+        };
     }
 
     // --- Private Provider Implementations ---
