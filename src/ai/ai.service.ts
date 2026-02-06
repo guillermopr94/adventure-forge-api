@@ -690,8 +690,9 @@ IMPORTANT: YOUR ENTIRE RESPONSE MUST BE VALID JSON. NO CONVERSATION. NO MARKDOWN
             try {
                 console.log(`[AiService] Calling HuggingFace Inference: ${model}`);
                 
+                // New endpoint as of 2026: router.huggingface.co (api-inference deprecated)
                 const response = await fetch(
-                    `https://api-inference.huggingface.co/models/${model}`,
+                    `https://router.huggingface.co/hf-inference/models/${model}`,
                     {
                         method: "POST",
                         headers: {
