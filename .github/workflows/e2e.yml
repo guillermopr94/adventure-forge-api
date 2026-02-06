@@ -55,9 +55,16 @@ jobs:
 
       - name: Start backend in background
         run: |
-          node dist/main.js > /tmp/backend.log 2>&1 &
+          echo "Starting backend from $(pwd)"
+          ls -la dist/
+          ls -la dist/src/ || echo "dist/src not found"
+          # NestJS compiles to dist/src/main.js
+          node dist/src/main.js > /tmp/backend.log 2>&1 &
           echo $! > /tmp/backend.pid
           echo "Backend started with PID $(cat /tmp/backend.pid)"
+          sleep 2
+          echo "Initial backend logs:"
+          cat /tmp/backend.log || true
         env:
           PORT: 3001
           MONGO_URI: mongodb://localhost:27017/adventure-forge-test
