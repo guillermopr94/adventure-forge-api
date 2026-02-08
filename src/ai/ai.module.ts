@@ -5,8 +5,7 @@ import { AuthModule } from '../auth/auth.module';
 
 @Module({
     imports: [
-        // AuthModule disabled (requires MongoDB)
-        // AuthModule
+        AuthModule
     ],
     controllers: [AiController],
     providers: [AiService],
