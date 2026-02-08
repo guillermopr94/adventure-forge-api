@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards, UnauthorizedException, Sse, Headers, Header, MessageEvent, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards, UnauthorizedException, ForbiddenException, Sse, Headers, Header, MessageEvent, Req, Res } from '@nestjs/common';
 import { GameService } from './game.service';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -16,25 +16,23 @@ class SaveGameDto {
 }
 
 @Controller('game')
+@UseGuards(AuthGuard)
 export class GameController {
     constructor(private readonly gameService: GameService) { }
 
     @Post('save')
-    @UseGuards(AuthGuard)
     async saveGame(@Req() req: any, @Body() body: SaveGameDto) {
         const userId = req.user.googleId;
         return this.gameService.saveGame(userId, body);
     }
 
     @Get('list')
-    @UseGuards(AuthGuard)
     async listGames(@Req() req: any) {
         const userId = req.user.googleId;
         return this.gameService.listGames(userId);
     }
 
     @Get('load')
-    @UseGuards(AuthGuard)
     async loadGame(@Req() req: any, @Query('saveId') saveId: string) {
         const userId = req.user.googleId;
         if (!saveId) throw new UnauthorizedException('Save ID required');
@@ -42,7 +40,6 @@ export class GameController {
     }
 
     @Post('delete')
-    @UseGuards(AuthGuard)
     async deleteGame(@Req() req: any, @Body() body: { saveId: string }) {
         const userId = req.user.googleId;
         if (!body.saveId) throw new UnauthorizedException('Save ID required');
@@ -53,15 +50,30 @@ export class GameController {
     @Header('Content-Type', 'text/event-stream')
     @Header('Cache-Control', 'no-cache')
     @Header('Connection', 'keep-alive')
-    streamTurn(
+    async streamTurn(
         @Req() req: any,
-        @Body() body: { prompt: string, history: any[], voice: string, genre: string, lang: string },
+        @Body() body: { prompt: string, history: any[], voice: string, genre: string, lang: string, saveId?: string },
         @Headers('x-google-api-key') gKey: string,
         @Headers('x-pollinations-token') pKey: string,
         @Headers('x-openai-api-key') oKey: string,
         @Res() res: any
     ) {
+        const userId = req.user.googleId;
+
+        // Verify save ownership if saveId is provided
+        if (body.saveId) {
+            const save = await this.gameService.loadGame(body.saveId, userId);
+            if (!save) {
+                console.warn(`[GameController] Unauthorized stream attempt for save ${body.saveId} by user ${userId}`);
+                return res.status(403).json({ 
+                    type: 'error', 
+                    message: 'Forbidden: You do not have permission to access this game save.' 
+                });
+            }
+        }
+
         const stream$ = this.gameService.streamTurn(
+            userId,
             body.prompt,
             body.history,
             body.voice,

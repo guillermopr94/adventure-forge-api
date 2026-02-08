@@ -14,7 +14,7 @@ export class GameService {
 
     async saveGame(userId: string, saveData: Partial<GameSave> & { _id?: string }) {
         console.log(`[GameService] Saving game for user ${userId}. ID: ${saveData._id}`);
-        
+
         if (saveData._id) {
             console.log(`[GameService] Updating existing save ${saveData._id}`);
             return this.gameSaveModel.findByIdAndUpdate(
@@ -47,7 +47,7 @@ export class GameService {
     }
 
     // --- Streaming Logic ---
-    streamTurn(prompt: string, history: any[], voice: string, genre: string, lang: string, gKey?: string, pKey?: string, oKey?: string): any {
+    streamTurn(userId: string, prompt: string, history: any[], voice: string, genre: string, lang: string, gKey?: string, pKey?: string, oKey?: string): any {
         const { Observable } = require('rxjs');
 
         return new Observable((subscriber: any) => {
@@ -55,20 +55,20 @@ export class GameService {
                 try {
                     // 1. Generate Structured Game Turn
                     subscriber.next({ type: 'status', message: 'Generating Scene...' });
-                    
+
                     const onRetry = (strategy: string, attempt: number) => {
-                        subscriber.next({ 
-                            type: 'status', 
+                        subscriber.next({
+                            type: 'status',
                             message: `Retrying ${strategy} (Attempt ${attempt})...`,
-                            is_retry: true 
+                            is_retry: true
                         });
                     };
 
                     const onFallback = (strategy: string) => {
-                        subscriber.next({ 
-                            type: 'status', 
+                        subscriber.next({
+                            type: 'status',
                             message: `Falling back from ${strategy}...`,
-                            is_fallback: true 
+                            is_fallback: true
                         });
                     };
 

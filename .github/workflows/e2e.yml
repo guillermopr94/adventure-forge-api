@@ -71,21 +71,44 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           NODE_ENV: test
 
-      - name: Wait for backend to be ready
+      - name: Start frontend in background
+        run: |
+          echo "Starting frontend..."
+          npm start > /tmp/frontend.log 2>&1 &
+          echo $! > /tmp/frontend.pid
+          echo "Frontend started with PID $(cat /tmp/frontend.pid)"
+        working-directory: frontend
+        env:
+          BROWSER: none
+          PORT: 3000
+          REACT_APP_API_URL: http://localhost:3001
+
+      - name: Wait for services to be ready
         run: |
           echo "Waiting for backend on port 3001..."
           for i in {1..30}; do
             if curl -s http://localhost:3001/ > /dev/null 2>&1; then
               echo "Backend is up!"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
+          
+          echo "Waiting for frontend on port 3000..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3000/ > /dev/null 2>&1; then
+              echo "Frontend is up!"
               exit 0
             fi
             echo "Attempt $i/30..."
-            tail -5 /tmp/backend.log 2>/dev/null || true
-            sleep 2
+            sleep 5
           done
           echo "=== FULL BACKEND LOGS ==="
           cat /tmp/backend.log
-          echo "Backend failed to start"
+          echo "=== FULL FRONTEND LOGS ==="
+          cat /tmp/frontend.log
+          echo "Services failed to start"
           exit 1
 
       - name: Run E2E tests
@@ -111,9 +134,12 @@ jobs:
           path: /tmp/backend.log
           retention-days: 3
 
-      - name: Stop backend
+      - name: Stop services
         if: always()
         run: |
           if [ -f /tmp/backend.pid ]; then
             kill $(cat /tmp/backend.pid) 2>/dev/null || true
+          fi
+          if [ -f /tmp/frontend.pid ]; then
+            kill $(cat /tmp/frontend.pid) 2>/dev/null || true
           fi
