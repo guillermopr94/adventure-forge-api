@@ -3,7 +3,7 @@ import { AiService } from './ai.service';
 import { AuthGuard } from '../auth/auth.guard';
 
 @Controller('ai')
-// @UseGuards(AuthGuard) // Disabled until MongoDB is restored
+@UseGuards(AuthGuard)
 export class AiController {
     constructor(private readonly aiService: AiService) { }
 
