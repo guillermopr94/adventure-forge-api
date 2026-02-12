@@ -79,9 +79,10 @@ export class GameController {
             body.voice,
             body.genre,
             body.lang,
-            gKey || process.env.GOOGLE_API_KEY,
-            pKey || process.env.POLLINATIONS_TOKEN,
-            oKey || process.env.OPENAI_API_KEY
+            !!req.user,
+            gKey,
+            pKey,
+            oKey
         );
 
         const subscription = stream$.subscribe({
