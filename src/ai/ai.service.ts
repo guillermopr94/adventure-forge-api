@@ -91,11 +91,11 @@ export class AiService {
 
     // --- Public "Smart" Methods ---
 
-    async generateText(prompt: string, history: any[], googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
+    async generateText(prompt: string, history: any[], isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
-        const puterToken = process.env.PUTER_TOKEN;
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
+        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
 
         // Define prioritized strategies with fallback logic
         const strategies = [
@@ -206,12 +206,16 @@ export class AiService {
         return 'openai'; // default
     }
 
-    async generateAudio(text: string, voice: string, genre: string, lang: string, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
+    async generateAudio(text: string, voice: string, genre: string, lang: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
         const errors: string[] = [];
+
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
+        const oKey = openaiKey || (isAuthenticated ? process.env.OPENAI_API_KEY : undefined);
 
         // 1. Try Pollinations 
         try {
-            return await this.withRetry(() => this.generatePollinationsAudio(text, voice, genre, pollinationsKey),
+            return await this.withRetry(() => this.generatePollinationsAudio(text, voice, genre, pKey),
                 { retries: 2, baseDelay: 500, name: 'Pollinations Audio' });
         } catch (e: any) {
             console.warn("[AiService] Pollinations Audio failed:", e.message);
@@ -228,9 +232,9 @@ export class AiService {
         }
 
         // 3. Try Gemini (if key)
-        if (googleKey) {
+        if (gKey) {
             try {
-                return await this.withRetry(() => this.generateGeminiAudio(text, googleKey),
+                return await this.withRetry(() => this.generateGeminiAudio(text, gKey),
                     { retries: 2, baseDelay: 500, name: 'Gemini Audio' });
             } catch (e: any) {
                 console.warn("[AiService] Gemini Audio failed:", e.message);
@@ -241,14 +245,14 @@ export class AiService {
         throw new Error(`All Audio providers failed: ${errors.join(", ")}`);
     }
 
-    async generateImage(prompt: string, googleKey?: string): Promise<string> {
+    async generateImage(prompt: string, isAuthenticated: boolean, googleKey?: string): Promise<string> {
         const errors: string[] = [];
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
         
         // 1. Try Gemini (Imagen 3 via Gemini Flash)
-        if (googleKey || process.env.GOOGLE_API_KEY) {
-            const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        if (gKey) {
             try {
-                return await this.withRetry(() => this.generateGeminiImage(prompt, gKey!),
+                return await this.withRetry(() => this.generateGeminiImage(prompt, gKey),
                     { retries: 2, baseDelay: 1500, name: 'Gemini Image' });
             } catch (e: any) {
                 console.warn("[AiService] Gemini Image failed:", e.message);
@@ -257,7 +261,7 @@ export class AiService {
         }
 
         // 2. Try Puter AI (High Reliability Fallback - Requires PUTER_TOKEN)
-        const puterToken = process.env.PUTER_TOKEN;
+        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
         if (puterToken) {
             try {
                 return await this.withRetry(() => this.generatePuterImage(prompt, puterToken),
@@ -269,7 +273,7 @@ export class AiService {
         }
 
         // 3. Try HuggingFace Inference API (FREE - 1000 requests/day)
-        const hfToken = process.env.HUGGINGFACE_TOKEN;
+        const hfToken = isAuthenticated ? process.env.HUGGINGFACE_TOKEN : undefined;
         if (hfToken) {
             try {
                 return await this.withRetry(() => this.generateHuggingFaceImage(prompt, hfToken),
@@ -280,11 +284,11 @@ export class AiService {
             }
         }
 
-        const pKey = process.env.POLLINATIONS_TOKEN;
+        const pKey = isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined;
 
         // 4. Try Pollinations (Flux) - Main Strategy
         try {
-            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'flux'),
+            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'flux', pKey),
                 { retries: 2, baseDelay: 2000, name: 'Pollinations Flux' });
         } catch (e: any) {
             console.warn("[AiService] Pollinations Flux failed:", e.message);
@@ -293,7 +297,7 @@ export class AiService {
 
         // 5. Try Pollinations (Turbo) - High Availability Fallback
         try {
-            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'turbo'),
+            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'turbo', pKey),
                 { retries: 2, baseDelay: 2000, name: 'Pollinations Turbo' });
         } catch (e: any) {
             console.warn("[AiService] Pollinations Turbo failed:", e.message);
@@ -302,7 +306,7 @@ export class AiService {
 
         // 6. Try Pollinations (Stable Diffusion XL) - Legacy Fallback
         try {
-            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'stable-diffusion-xl'),
+            return await this.withRetry(() => this.generatePollinationsImage(prompt, 'stable-diffusion-xl', pKey),
                 { retries: 1, baseDelay: 1000, name: 'Pollinations SDXL' });
         } catch (e: any) {
             console.warn("[AiService] Pollinations SDXL failed:", e.message);
@@ -370,10 +374,9 @@ export class AiService {
         return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
-    private async generatePollinationsImage(prompt: string, model: string = 'flux'): Promise<string> {
+    private async generatePollinationsImage(prompt: string, model: string = 'flux', token?: string): Promise<string> {
         const encodedPrompt = encodeURIComponent(prompt);
         const seed = Math.floor(Math.random() * 10000);
-        const token = process.env.POLLINATIONS_TOKEN;
 
         // Using new endpoint: https://gen.pollinations.ai/image/...
         // Mobile optimization requested: Portrait mode (Vertical)
@@ -399,10 +402,10 @@ export class AiService {
         return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
 
-    async generateGameTurn(prompt: string, history: any[], genre: string, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
-        const puterToken = process.env.PUTER_TOKEN;
+    async generateGameTurn(prompt: string, history: any[], genre: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
+        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
 
         const systemPrompt = `You are an immersive game engine for a ${genre} adventure.
 Your task: Generate ONLY a JSON object for the next game state. Nothing else.
@@ -737,9 +740,22 @@ Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() direct
             cleanedText = cleanedText.substring(preambleEnd + 1).trim();
         }
 
+        // Try to extract options from text if they look like a list
+        let options = ["Continue", "Look around", "Wait"];
+        const optionLines = cleanedText.match(/(?:^|[\n\r])(?:\d+\.|\*|-)\s+([^\n\r]+)/g);
+        if (optionLines && optionLines.length >= 2) {
+            options = optionLines.map(line => line.replace(/^(?:^|[\n\r])(?:\d+\.|\*|-)\s+/, '').trim()).slice(0, 4);
+            // Remove options from paragraphs if they were extracted
+            options.forEach(opt => {
+                cleanedText = cleanedText.replace(opt, '').trim();
+            });
+            // Clean up list artifacts
+            cleanedText = cleanedText.replace(/(?:\d+\.|\*|-)\s*$/gm, '').trim();
+        }
+
         return {
             paragraphs: [cleanedText || rawText],
-            options: ["Continue", "Look around", "Wait"],
+            options: options,
             inventory_changes: [],
             stats_update: {}
         };
