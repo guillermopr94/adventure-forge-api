@@ -93,9 +93,9 @@ export class AiService {
 
     async generateText(prompt: string, history: any[], isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
-        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const puterToken = process.env.PUTER_TOKEN;
 
         // Define prioritized strategies with fallback logic
         const strategies = [
@@ -209,9 +209,9 @@ export class AiService {
     async generateAudio(text: string, voice: string, genre: string, lang: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
         const errors: string[] = [];
 
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
-        const oKey = openaiKey || (isAuthenticated ? process.env.OPENAI_API_KEY : undefined);
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const oKey = openaiKey || process.env.OPENAI_API_KEY;
 
         // 1. Try Pollinations 
         try {
@@ -247,7 +247,7 @@ export class AiService {
 
     async generateImage(prompt: string, isAuthenticated: boolean, googleKey?: string): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
         
         // 1. Try Gemini (Imagen 3 via Gemini Flash)
         if (gKey) {
@@ -261,7 +261,7 @@ export class AiService {
         }
 
         // 2. Try Puter AI (High Reliability Fallback - Requires PUTER_TOKEN)
-        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+        const puterToken = process.env.PUTER_TOKEN;
         if (puterToken) {
             try {
                 return await this.withRetry(() => this.generatePuterImage(prompt, puterToken),
@@ -273,7 +273,7 @@ export class AiService {
         }
 
         // 3. Try HuggingFace Inference API (FREE - 1000 requests/day)
-        const hfToken = isAuthenticated ? process.env.HUGGINGFACE_TOKEN : undefined;
+        const hfToken = process.env.HUGGINGFACE_TOKEN;
         if (hfToken) {
             try {
                 return await this.withRetry(() => this.generateHuggingFaceImage(prompt, hfToken),
@@ -284,7 +284,7 @@ export class AiService {
             }
         }
 
-        const pKey = isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined;
+        const pKey = process.env.POLLINATIONS_TOKEN;
 
         // 4. Try Pollinations (Flux) - Main Strategy
         try {
@@ -403,9 +403,9 @@ export class AiService {
     }
 
     async generateGameTurn(prompt: string, history: any[], genre: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
-        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const puterToken = process.env.PUTER_TOKEN;
 
         const systemPrompt = `You are an immersive game engine for a ${genre} adventure.
 Your task: Generate ONLY a JSON object for the next game state. Nothing else.
