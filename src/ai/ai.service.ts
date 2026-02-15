@@ -490,7 +490,7 @@ export class AiService {
 
             // 1. Strip common AI preambles (before any JSON)
             const preamblePatterns = [
-                /^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me|i'?ll\s+(?:create|generate)|sure[,!]?\s*(?:here)?|okay[,!]?\s*(?:here)?|certainly[,!]?\s*)/i,
+                /^.*?(?:aquí\s+tienes?|here\s+(?:is|are)|let\s+me|i'?ll\s+(?:create|generate)|sure[,!]?\s*(?:here)?|okay[,!]?\s*(?:here)?|certainly[,!]?\s*)/i,
                 /^.*?(?:la\s+escena|the\s+scene|your\s+(?:scene|adventure|story))[^{]*/i,
                 /^[^{]*?(?::\s*)/,  // Anything ending with colon before JSON
             ];
@@ -709,7 +709,7 @@ export class AiService {
     private wrapTextAsGameTurn(rawText: string): any {
         // Clean the text - remove common AI preambles
         let cleanedText = rawText
-            .replace(/^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me)[^:]*:\s*/i, '')
+            .replace(/^.*?(?:aquí\s+tienes?|here\s+(?:is|are)|let\s+me)[^:]*:\s*/i, '')
             .replace(/^.*?(?:la\s+escena|the\s+scene)[^:]*:\s*/i, '')
             .trim();
 
