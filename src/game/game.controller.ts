@@ -3,6 +3,7 @@ import { GameService } from './game.service';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { AuthGuard } from '../auth/auth.guard';
+import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 
 // Basic DTOs
 class SaveGameDto {
@@ -50,6 +51,7 @@ export class GameController {
     }
 
     @Post('stream')
+    @UseGuards(OptionalAuthGuard)
     @Header('Content-Type', 'text/event-stream')
     @Header('Cache-Control', 'no-cache')
     @Header('Connection', 'keep-alive')
