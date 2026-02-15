@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { PromptAssemblyService } from './prompt-assembly.service';
 
 @Injectable()
 export class AiService {
     private quotaLogs: { timestamp: number; provider: string; model: string; action: string; status: 'success' | 'error'; error?: string }[] = [];
     
-    constructor() { }
+    constructor(private readonly promptAssemblyService: PromptAssemblyService) { }
 
     private logQuota(provider: string, model: string, action: string, status: 'success' | 'error', error?: string) {
         const log = { timestamp: Date.now(), provider, model, action, status, error };
@@ -93,9 +94,12 @@ export class AiService {
 
     async generateText(prompt: string, history: any[], isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
-        const puterToken = process.env.PUTER_TOKEN;
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
+        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+
+        // Format history using PromptAssemblyService
+        const historyContext = this.promptAssemblyService.buildHistoryContext(history, 10);
 
         // Define prioritized strategies with fallback logic
         const strategies = [
@@ -118,11 +122,11 @@ export class AiService {
 
                 return await this.withRetry(async () => {
                     if (strategy.type === "gemini") {
-                        return await this.generateGeminiText(prompt, history, gKey, strategy.model);
+                        return await this.generateGeminiText(prompt, historyContext, gKey, strategy.model);
                     } else if (strategy.type === "puter") {
-                        return await this.generatePuterText(prompt, history, puterToken!, strategy.model);
+                        return await this.generatePuterText(prompt, historyContext, puterToken!, strategy.model);
                     } else {
-                        return await this.generatePollinationsText(prompt, history, pKey, strategy.model);
+                        return await this.generatePollinationsText(prompt, historyContext, pKey, strategy.model);
                     }
                 }, { 
                     retries: 2, 
@@ -209,9 +213,9 @@ export class AiService {
     async generateAudio(text: string, voice: string, genre: string, lang: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
         const errors: string[] = [];
 
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
-        const oKey = openaiKey || process.env.OPENAI_API_KEY;
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
+        const oKey = openaiKey || (isAuthenticated ? process.env.OPENAI_API_KEY : undefined);
 
         // 1. Try Pollinations 
         try {
@@ -247,7 +251,7 @@ export class AiService {
 
     async generateImage(prompt: string, isAuthenticated: boolean, googleKey?: string): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
         
         // 1. Try Gemini (Imagen 3 via Gemini Flash)
         if (gKey) {
@@ -261,7 +265,7 @@ export class AiService {
         }
 
         // 2. Try Puter AI (High Reliability Fallback - Requires PUTER_TOKEN)
-        const puterToken = process.env.PUTER_TOKEN;
+        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
         if (puterToken) {
             try {
                 return await this.withRetry(() => this.generatePuterImage(prompt, puterToken),
@@ -273,7 +277,7 @@ export class AiService {
         }
 
         // 3. Try HuggingFace Inference API (FREE - 1000 requests/day)
-        const hfToken = process.env.HUGGINGFACE_TOKEN;
+        const hfToken = isAuthenticated ? process.env.HUGGINGFACE_TOKEN : undefined;
         if (hfToken) {
             try {
                 return await this.withRetry(() => this.generateHuggingFaceImage(prompt, hfToken),
@@ -284,7 +288,7 @@ export class AiService {
             }
         }
 
-        const pKey = process.env.POLLINATIONS_TOKEN;
+        const pKey = isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined;
 
         // 4. Try Pollinations (Flux) - Main Strategy
         try {
@@ -403,39 +407,14 @@ export class AiService {
     }
 
     async generateGameTurn(prompt: string, history: any[], genre: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
-        const puterToken = process.env.PUTER_TOKEN;
+        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
+        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
+        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
 
-        const systemPrompt = `You are an immersive game engine for a ${genre} adventure.
-Your task: Generate ONLY a JSON object for the next game state. Nothing else.
-
-STRICT RULES:
-1. Output ONLY valid JSON - no text before or after
-2. Start with { and end with }
-3. NO markdown code blocks (no \`\`\`)
-4. NO conversational text, greetings, or explanations
-5. NO asterisks for emphasis (*word* is FORBIDDEN) - use plain text
-6. Write narrative in clean, flowing prose without formatting symbols
-
-REQUIRED JSON SCHEMA:
-{
-  "paragraphs": ["First paragraph of narrative...", "Second paragraph if needed..."],
-  "options": ["Action choice 1", "Action choice 2", "Action choice 3"],
-  "inventory_changes": ["+item gained", "-item lost"],
-  "stats_update": {"health": 100, "gold": 50}
-}
-
-FIELD REQUIREMENTS:
-- paragraphs: Array of 1-3 strings. Each string is a narrative paragraph (50-150 words). Plain text only, no formatting.
-- options: Array of 2-4 strings. Each is a short action the player can take (5-15 words).
-- inventory_changes: Array of strings with +/- prefix, or empty array [].
-- stats_update: Object with stat changes, or empty object {}.
-
-EXAMPLE OUTPUT:
-{"paragraphs":["The ancient door creaks open, revealing a vast chamber lit by flickering torches."],"options":["Enter cautiously","Search for traps","Call out into the darkness"],"inventory_changes":[],"stats_update":{}}
-
-Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() directly.`;
+        // 1. Prepare Instructions and History using PromptAssemblyService
+        const systemPrompt = this.promptAssemblyService.getGenreInstructions(genre);
+        const historyContext = this.promptAssemblyService.buildHistoryContext(history, 20); // Longer history for game turn
+        const userPrompt = this.promptAssemblyService.assembleGameTurnPrompt(prompt, genre);
 
         const strategies = [
             { name: "Gemini 2.5 Flash", model: "models/gemini-2.5-flash", type: "gemini" },
@@ -461,14 +440,14 @@ Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() direct
 
                 const result = await this.withRetry(async () => {
                     if (strategy.type === "gemini") {
-                        // For Gemini, we pass systemPrompt separately if possible, or as first message
-                        return await this.generateGeminiText(prompt, history, gKey, strategy.model, true, systemPrompt);
+                        // For Gemini, we pass systemPrompt separately
+                        return await this.generateGeminiText(prompt, historyContext, gKey, strategy.model, true, systemPrompt);
                     } else if (strategy.type === "puter") {
-                        const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}\nIMPORTANT: Respond ONLY with valid JSON.`;
-                        return await this.generatePuterText(fullPrompt, history, puterToken!, strategy.model);
+                        const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+                        return await this.generatePuterText(fullPrompt, historyContext, puterToken!, strategy.model);
                     } else {
-                        const fullPrompt = `${systemPrompt}\n\nUser Action: ${prompt}\nIMPORTANT: Respond ONLY with valid JSON.`;
-                        return await this.generatePollinationsText(fullPrompt, history, pKey, strategy.model);
+                        const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+                        return await this.generatePollinationsText(fullPrompt, historyContext, pKey, strategy.model);
                     }
                 }, { 
                     retries: 2, 
@@ -511,7 +490,7 @@ Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() direct
 
             // 1. Strip common AI preambles (before any JSON)
             const preamblePatterns = [
-                /^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me|i'?ll\s+(?:create|generate)|sure[,!]?\s*(?:here)?|okay[,!]?\s*(?:here)?|certainly[,!]?\s*)/i,
+                /^.*?(?:aquí\s+tienes?|here\s+(?:is|are)|let\s+me|i'?ll\s+(?:create|generate)|sure[,!]?\s*(?:here)?|okay[,!]?\s*(?:here)?|certainly[,!]?\s*)/i,
                 /^.*?(?:la\s+escena|the\s+scene|your\s+(?:scene|adventure|story))[^{]*/i,
                 /^[^{]*?(?::\s*)/,  // Anything ending with colon before JSON
             ];
@@ -730,7 +709,7 @@ Remember: PURE JSON ONLY. Your response must be parseable by JSON.parse() direct
     private wrapTextAsGameTurn(rawText: string): any {
         // Clean the text - remove common AI preambles
         let cleanedText = rawText
-            .replace(/^.*?(?:aqu[íi]\s+tienes?|here\s+(?:is|are)|let\s+me)[^:]*:\s*/i, '')
+            .replace(/^.*?(?:aquí\s+tienes?|here\s+(?:is|are)|let\s+me)[^:]*:\s*/i, '')
             .replace(/^.*?(?:la\s+escena|the\s+scene)[^:]*:\s*/i, '')
             .trim();
 
