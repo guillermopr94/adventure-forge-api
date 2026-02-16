@@ -4,13 +4,13 @@ import { PromptAssemblyService } from './prompt-assembly.service';
 @Injectable()
 export class AiService {
     private quotaLogs: { timestamp: number; provider: string; model: string; action: string; status: 'success' | 'error'; error?: string }[] = [];
-    
+
     constructor(private readonly promptAssemblyService: PromptAssemblyService) { }
 
     private logQuota(provider: string, model: string, action: string, status: 'success' | 'error', error?: string) {
         const log = { timestamp: Date.now(), provider, model, action, status, error };
         this.quotaLogs.push(log);
-        
+
         // Keep only last 100 logs in memory
         if (this.quotaLogs.length > 100) {
             this.quotaLogs.shift();
@@ -26,7 +26,7 @@ export class AiService {
     getQuotaStats() {
         const now = Date.now();
         const last24h = this.quotaLogs.filter(log => now - log.timestamp < 24 * 60 * 60 * 1000);
-        
+
         return {
             total: last24h.length,
             success: last24h.filter(log => log.status === 'success').length,
@@ -43,27 +43,27 @@ export class AiService {
      */
     private async withRetry<T>(
         operation: () => Promise<T>,
-        options: { 
-            retries: number; 
-            baseDelay: number; 
-            name: string; 
+        options: {
+            retries: number;
+            baseDelay: number;
+            name: string;
             provider?: string;
             model?: string;
             action?: string;
-            onRetry?: (attempt: number, error: any) => void; 
-            onFallback?: (error: any) => void 
+            onRetry?: (attempt: number, error: any) => void;
+            onFallback?: (error: any) => void
         } = { retries: 3, baseDelay: 1000, name: 'AI Operation' }
     ): Promise<T> {
         let lastError: any;
         for (let i = 0; i < options.retries; i++) {
             try {
                 const result = await operation();
-                
+
                 // Log successful operation
                 if (options.provider && options.model && options.action) {
                     this.logQuota(options.provider, options.model, options.action, 'success');
                 }
-                
+
                 return result;
             } catch (error: any) {
                 lastError = error;
@@ -94,9 +94,10 @@ export class AiService {
 
     async generateText(prompt: string, history: any[], isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
-        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+        // ALWAYS allow fallback to server keys if user didn't provide them, regardless of login
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const puterToken = process.env.PUTER_TOKEN;
 
         // Format history using PromptAssemblyService
         const historyContext = this.promptAssemblyService.buildHistoryContext(history, 10);
@@ -128,9 +129,9 @@ export class AiService {
                     } else {
                         return await this.generatePollinationsText(prompt, historyContext, pKey, strategy.model);
                     }
-                }, { 
-                    retries: 2, 
-                    baseDelay: 1000, 
+                }, {
+                    retries: 2,
+                    baseDelay: 1000,
                     name: strategy.name,
                     provider: strategy.type,
                     model: strategy.model,
@@ -150,7 +151,7 @@ export class AiService {
 
     private async generatePuterText(prompt: string, history: any[], token: string, model: string): Promise<string> {
         const url = "https://api.puter.com/drivers/call";
-        
+
         // Build messages in OpenAI format
         const messages: any[] = [];
         if (history && Array.isArray(history)) {
@@ -188,18 +189,18 @@ export class AiService {
 
         if (!response.ok) throw new Error(`Puter Text Status ${response.status}`);
         const data = await response.json();
-        
+
         // Puter structure: { result: { message: { content: "..." } } } or similar
         const result = data.result || data;
         const message = result.message || (result.choices && result.choices[0] && result.choices[0].message);
-        
+
         if (message && message.content) {
             if (Array.isArray(message.content)) {
                 return message.content.map((p: any) => p.text || "").join("");
             }
             return message.content;
         }
-        
+
         throw new Error("Invalid response from Puter Text API");
     }
 
@@ -213,9 +214,10 @@ export class AiService {
     async generateAudio(text: string, voice: string, genre: string, lang: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, openaiKey?: string): Promise<string> {
         const errors: string[] = [];
 
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
-        const oKey = openaiKey || (isAuthenticated ? process.env.OPENAI_API_KEY : undefined);
+        // ALWAYS allow fallback to server keys if user didn't provide them, regardless of login
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const oKey = openaiKey || process.env.OPENAI_API_KEY;
 
         // 1. Try Pollinations 
         try {
@@ -251,8 +253,9 @@ export class AiService {
 
     async generateImage(prompt: string, isAuthenticated: boolean, googleKey?: string): Promise<string> {
         const errors: string[] = [];
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        
+        // ALWAYS allow fallback to server keys if user didn't provide them, regardless of login
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+
         // 1. Try Gemini (Imagen 3 via Gemini Flash)
         if (gKey) {
             try {
@@ -265,7 +268,7 @@ export class AiService {
         }
 
         // 2. Try Puter AI (High Reliability Fallback - Requires PUTER_TOKEN)
-        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+        const puterToken = process.env.PUTER_TOKEN;
         if (puterToken) {
             try {
                 return await this.withRetry(() => this.generatePuterImage(prompt, puterToken),
@@ -277,7 +280,7 @@ export class AiService {
         }
 
         // 3. Try HuggingFace Inference API (FREE - 1000 requests/day)
-        const hfToken = isAuthenticated ? process.env.HUGGINGFACE_TOKEN : undefined;
+        const hfToken = process.env.HUGGINGFACE_TOKEN;
         if (hfToken) {
             try {
                 return await this.withRetry(() => this.generateHuggingFaceImage(prompt, hfToken),
@@ -288,7 +291,7 @@ export class AiService {
             }
         }
 
-        const pKey = isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined;
+        const pKey = process.env.POLLINATIONS_TOKEN;
 
         // 4. Try Pollinations (Flux) - Main Strategy
         try {
@@ -353,13 +356,13 @@ export class AiService {
 
         if (!response.ok) throw new Error(`Puter Image Status ${response.status}`);
         const data = await response.json();
-        
+
         // Puter returns a data URL in response.result or data.result
         const result = data.result || data;
         if (typeof result === 'string' && result.startsWith('data:image')) {
             return result;
         }
-        
+
         throw new Error("Invalid response from Puter Image API");
     }
 
@@ -368,12 +371,12 @@ export class AiService {
         const seed = Math.floor(Math.random() * 1000000);
         // Standard legacy endpoint: https://image.pollinations.ai/prompt/{prompt}?seed={seed}&width=512&height=512&nologo=true
         const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?seed=${seed}&width=512&height=512&nologo=true`;
-        
+
         console.log(`[AiService] Calling Legacy Pollinations: ${url}`);
-        
+
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Legacy Pollinations Status ${response.status}`);
-        
+
         const buffer = await response.arrayBuffer();
         return `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
     }
@@ -407,9 +410,9 @@ export class AiService {
     }
 
     async generateGameTurn(prompt: string, history: any[], genre: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
-        const gKey = googleKey || (isAuthenticated ? process.env.GOOGLE_API_KEY : undefined);
-        const pKey = pollinationsKey || (isAuthenticated ? process.env.POLLINATIONS_TOKEN : undefined);
-        const puterToken = isAuthenticated ? process.env.PUTER_TOKEN : undefined;
+        const gKey = googleKey || process.env.GOOGLE_API_KEY;
+        const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
+        const puterToken = process.env.PUTER_TOKEN;
 
         // 1. Prepare Instructions and History using PromptAssemblyService
         const systemPrompt = this.promptAssemblyService.getGenreInstructions(genre);
@@ -449,9 +452,9 @@ export class AiService {
                         const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
                         return await this.generatePollinationsText(fullPrompt, historyContext, pKey, strategy.model);
                     }
-                }, { 
-                    retries: 2, 
-                    baseDelay: 1000, 
+                }, {
+                    retries: 2,
+                    baseDelay: 1000,
                     name: strategy.name,
                     provider: strategy.type,
                     model: strategy.model,
@@ -465,10 +468,10 @@ export class AiService {
                 if (parsed) {
                     return parsed;
                 }
-                
+
                 // If parsing failed, continue to next strategy
                 console.warn(`[AiService] Parsing failed for ${strategy.name}, trying next...`);
-                
+
             } catch (e: any) {
                 console.warn(`[AiService] Game Turn strategy ${strategy.name} failed: ${e.message}`);
             }
@@ -511,7 +514,7 @@ export class AiService {
             // 2. Extract JSON block (first { to last })
             const firstBrace = result.indexOf('{');
             const lastBrace = result.lastIndexOf('}');
-            
+
             if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
                 // No valid JSON structure found - wrap raw text
                 console.warn(`[AiService] No JSON found in response. Wrapping as paragraphs.`);
@@ -519,7 +522,7 @@ export class AiService {
             }
 
             const jsonPart = result.substring(firstBrace, lastBrace + 1);
-            
+
             // 3. Try to parse JSON
             let parsed: any;
             try {
@@ -534,7 +537,7 @@ export class AiService {
                     .replace(/\t/g, ' ')      // Tabs to spaces
                     .replace(/\\/g, '\\\\')   // Escape backslashes
                     .replace(/[\x00-\x1F]/g, ' '); // Control characters to spaces
-                
+
                 try {
                     parsed = JSON.parse(fixedJson);
                     console.log(`[AiService] JSON fixed and parsed successfully`);
@@ -553,11 +556,11 @@ export class AiService {
 
             // 4. Normalize the structure
             const normalized = this.normalizeGameTurn(parsed);
-            
+
             // 5. Post-process: clean markdown artifacts from text fields
             normalized.paragraphs = normalized.paragraphs.map((p: string) => this.cleanMarkdownArtifacts(p));
             normalized.options = normalized.options.map((o: string) => this.cleanMarkdownArtifacts(o));
-            
+
             console.log(`[AiService] Successfully parsed game turn from ${strategyName}`);
             return normalized;
 
@@ -573,7 +576,7 @@ export class AiService {
      */
     private cleanMarkdownArtifacts(text: string): string {
         if (!text || typeof text !== 'string') return text;
-        
+
         return text
             // Convert **bold** to just the text (could add HTML later if needed)
             .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -596,7 +599,7 @@ export class AiService {
     private extractFieldsWithRegex(rawText: string): any | null {
         try {
             const result: any = { paragraphs: [], options: [] };
-            
+
             // Try to find paragraphs array content
             const paragraphsMatch = rawText.match(/"paragraphs"\s*:\s*\[([^\]]+)\]/i);
             if (paragraphsMatch) {
@@ -607,7 +610,7 @@ export class AiService {
                     result.paragraphs = strings.map(s => s.replace(/^"|"$/g, ''));
                 }
             }
-            
+
             // Try to find options array content
             const optionsMatch = rawText.match(/"options"\s*:\s*\[([^\]]+)\]/i);
             if (optionsMatch) {
@@ -617,12 +620,12 @@ export class AiService {
                     result.options = strings.map(s => s.replace(/^"|"$/g, ''));
                 }
             }
-            
+
             // Only return if we got something useful
             if (result.paragraphs.length > 0 || result.options.length > 0) {
                 return result;
             }
-            
+
             return null;
         } catch {
             return null;
@@ -645,7 +648,7 @@ export class AiService {
             if (typeof parsed.paragraphs === 'string') {
                 result.paragraphs = [parsed.paragraphs];
             } else if (Array.isArray(parsed.paragraphs)) {
-                result.paragraphs = parsed.paragraphs.map((p: any) => 
+                result.paragraphs = parsed.paragraphs.map((p: any) =>
                     typeof p === 'string' ? p : (p.text || p.content || JSON.stringify(p))
                 );
             }
@@ -675,7 +678,7 @@ export class AiService {
                 });
             }
         } else if (parsed.choices) {
-            result.options = Array.isArray(parsed.choices) 
+            result.options = Array.isArray(parsed.choices)
                 ? parsed.choices.map((c: any) => typeof c === 'string' ? c : (c.text || c.label || c.choice))
                 : [parsed.choices];
         } else if (parsed.actions) {
@@ -938,7 +941,7 @@ export class AiService {
         for (const model of models) {
             try {
                 console.log(`[AiService] Calling HuggingFace Inference: ${model}`);
-                
+
                 // New endpoint as of 2026: router.huggingface.co (api-inference deprecated)
                 const response = await fetch(
                     `https://router.huggingface.co/hf-inference/models/${model}`,
@@ -948,7 +951,7 @@ export class AiService {
                             "Authorization": `Bearer ${token}`,
                             "Content-Type": "application/json",
                         },
-                        body: JSON.stringify({ 
+                        body: JSON.stringify({
                             inputs: prompt,
                             parameters: {
                                 width: 512,
@@ -970,7 +973,7 @@ export class AiService {
                 }
 
                 const contentType = response.headers.get('content-type') || '';
-                
+
                 // HF returns raw image bytes
                 if (contentType.includes('image')) {
                     const buffer = await response.arrayBuffer();
