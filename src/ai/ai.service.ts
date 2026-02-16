@@ -94,10 +94,12 @@ export class AiService {
 
     async generateText(prompt: string, history: any[], isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, unusedModel?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<string> {
         const errors: string[] = [];
-        // ALWAYS allow fallback to server keys if user didn't provide them, regardless of login
+        // ALWAYS allow fallback to server keys. Guillermo wants guest play to "just work".
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
         const puterToken = process.env.PUTER_TOKEN;
+
+        console.log(`[AiService] Generating Text. GoogleKey: ${!!gKey}, PKey: ${!!pKey}, Puter: ${!!puterToken}`);
 
         // Format history using PromptAssemblyService
         const historyContext = this.promptAssemblyService.buildHistoryContext(history, 10);
@@ -432,14 +434,19 @@ export class AiService {
     }
 
     async generateGameTurn(prompt: string, history: any[], genre: string, isAuthenticated: boolean, googleKey?: string, pollinationsKey?: string, onStrategyRetry?: (strategy: string, attempt: number) => void, onFallback?: (strategy: string) => void): Promise<any> {
+        // ALWAYS allow fallback to server keys
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
         const pKey = pollinationsKey || process.env.POLLINATIONS_TOKEN;
         const puterToken = process.env.PUTER_TOKEN;
+
+        console.log(`[AiService] Generating Game Turn. Auth: ${isAuthenticated}, GoogleKey: ${!!gKey}, PKey: ${!!pKey}, Puter: ${!!puterToken}`);
 
         // 1. Prepare Instructions and History using PromptAssemblyService
         const systemPrompt = this.promptAssemblyService.getGenreInstructions(genre);
         const historyContext = this.promptAssemblyService.buildHistoryContext(history, 20); // Longer history for game turn
         const userPrompt = this.promptAssemblyService.assembleGameTurnPrompt(prompt, genre);
+
+        console.log(`[AiService] Prompt Assembly - History Window: ${historyContext.length} messages`);
 
         const strategies = [
             { name: "Gemini 2.5 Flash", model: "models/gemini-2.5-flash", type: "gemini" },
@@ -481,8 +488,14 @@ export class AiService {
                     provider: strategy.type,
                     model: strategy.model,
                     action: 'game_turn',
-                    onRetry: (attempt) => onStrategyRetry?.(strategy.name, attempt),
-                    onFallback: () => onFallback?.(strategy.name)
+                    onRetry: (attempt, error) => {
+                        console.warn(`[AiService] ${strategy.name} retry ${attempt} - Error: ${error.message}`);
+                        onStrategyRetry?.(strategy.name, attempt);
+                    },
+                    onFallback: (error) => {
+                        console.error(`[AiService] ${strategy.name} failed final attempt - Error: ${error.message}`);
+                        onFallback?.(strategy.name);
+                    }
                 });
 
                 // Use robust parser
