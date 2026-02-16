@@ -253,6 +253,28 @@ export class AiService {
 
     async generateImage(prompt: string, isAuthenticated: boolean, googleKey?: string): Promise<string> {
         const errors: string[] = [];
+
+        // 0. Try Local GPU (RTX 3060 via Cloudflare Tunnel)
+        const localGpuUrl = process.env.LOCAL_GPU_URL;
+        if (localGpuUrl) {
+            try {
+                console.log(`[AiService] Attempting Local GPU Image Generation: ${localGpuUrl}`);
+                return await this.withRetry(async () => {
+                    const response = await fetch(`${localGpuUrl}/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt, steps: 4, width: 512, height: 768 })
+                    });
+                    if (!response.ok) throw new Error(`Local GPU Status ${response.status}`);
+                    const data = await response.json();
+                    return data.image; // Expecting base64
+                }, { retries: 1, baseDelay: 1000, name: 'Local GPU Image' });
+            } catch (e: any) {
+                console.warn("[AiService] Local GPU Image failed:", e.message);
+                errors.push(`Local GPU: ${e.message}`);
+            }
+        }
+
         // ALWAYS allow fallback to server keys if user didn't provide them, regardless of login
         const gKey = googleKey || process.env.GOOGLE_API_KEY;
 
