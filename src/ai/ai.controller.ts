@@ -86,17 +86,31 @@ export class AiController {
         const oHeader = sanitize(openaiKey);
 
         try {
-            const results = await Promise.all(texts.map(async (text) => {
-                if (!text.trim()) return null;
-                try {
-                    return await this.aiService.generateAudio(text, voice, genre, lang, isAuthenticated, validGKey, pHeader, oHeader);
-                } catch (e) {
-                    console.error(`Batch audio failed for: ${text}`, e);
-                    return null;
-                }
-            }));
+            const results: (string | null)[] = new Array(texts.length).fill(null);
+            const concurrencyLimit = 3;
+
+            for (let i = 0; i < texts.length; i += concurrencyLimit) {
+                const chunk = texts.slice(i, i + concurrencyLimit);
+                const chunkPromises = chunk.map(async (text, index) => {
+                    const actualIndex = i + index;
+                    if (!text || !text.trim()) return null;
+                    try {
+                        return await this.aiService.generateAudio(text, voice, genre, lang, isAuthenticated, validGKey, pHeader, oHeader);
+                    } catch (e) {
+                        console.error(`Batch audio failed for: ${text}`, e);
+                        return null;
+                    }
+                });
+                
+                const chunkResults = await Promise.all(chunkPromises);
+                chunkResults.forEach((res, index) => {
+                    results[i + index] = res;
+                });
+            }
+            
             return { audios: results };
         } catch (e) {
+            console.error(`Batch generation error:`, e);
             throw new BadRequestException('Batch generation failed');
         }
     }
