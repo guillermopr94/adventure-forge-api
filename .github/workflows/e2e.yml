@@ -1,0 +1,145 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        with:
+          repository: guillermopr94/adventure-forge
+          path: frontend
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Start backend in background
+        run: |
+          echo "Starting backend from $(pwd)"
+          ls -la dist/
+          ls -la dist/src/ || echo "dist/src not found"
+          # NestJS compiles to dist/src/main.js
+          node dist/src/main.js > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          echo "Backend started with PID $(cat /tmp/backend.pid)"
+          sleep 2
+          echo "Initial backend logs:"
+          cat /tmp/backend.log || true
+        env:
+          PORT: 3001
+          MONGO_URI: mongodb://localhost:27017/adventure-forge-test
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          NODE_ENV: test
+
+      - name: Start frontend in background
+        run: |
+          echo "Starting frontend..."
+          npm start > /tmp/frontend.log 2>&1 &
+          echo $! > /tmp/frontend.pid
+          echo "Frontend started with PID $(cat /tmp/frontend.pid)"
+        working-directory: frontend
+        env:
+          BROWSER: none
+          PORT: 3000
+          REACT_APP_API_URL: http://localhost:3001
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for backend on port 3001..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3001/ > /dev/null 2>&1; then
+              echo "Backend is up!"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
+          
+          echo "Waiting for frontend on port 3000..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3000/ > /dev/null 2>&1; then
+              echo "Frontend is up!"
+              exit 0
+            fi
+            echo "Attempt $i/30..."
+            sleep 5
+          done
+          echo "=== FULL BACKEND LOGS ==="
+          cat /tmp/backend.log
+          echo "=== FULL FRONTEND LOGS ==="
+          cat /tmp/frontend.log
+          echo "Services failed to start"
+          exit 1
+
+      - name: Run E2E tests
+        run: npx playwright test
+        working-directory: frontend
+        env:
+          CI: true
+          REACT_APP_API_URL: http://localhost:3001
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+      - name: Upload backend logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-logs
+          path: /tmp/backend.log
+          retention-days: 3
+
+      - name: Stop services
+        if: always()
+        run: |
+          if [ -f /tmp/backend.pid ]; then
+            kill $(cat /tmp/backend.pid) 2>/dev/null || true
+          fi
+          if [ -f /tmp/frontend.pid ]; then
+            kill $(cat /tmp/frontend.pid) 2>/dev/null || true
+          fi

@@ -14,7 +14,7 @@ export class GameService {
 
     async saveGame(userId: string, saveData: Partial<GameSave> & { _id?: string }) {
         console.log(`[GameService] Saving game for user ${userId}. ID: ${saveData._id}`);
-        
+
         if (saveData._id) {
             console.log(`[GameService] Updating existing save ${saveData._id}`);
             return this.gameSaveModel.findByIdAndUpdate(
@@ -47,7 +47,7 @@ export class GameService {
     }
 
     // --- Streaming Logic ---
-    streamTurn(prompt: string, history: any[], voice: string, genre: string, lang: string, gKey?: string, pKey?: string, oKey?: string): any {
+    streamTurn(userId: string, prompt: string, history: any[], voice: string, genre: string, lang: string, isAuthenticated: boolean, gKey?: string, pKey?: string, oKey?: string): any {
         const { Observable } = require('rxjs');
 
         return new Observable((subscriber: any) => {
@@ -55,24 +55,24 @@ export class GameService {
                 try {
                     // 1. Generate Structured Game Turn
                     subscriber.next({ type: 'status', message: 'Generating Scene...' });
-                    
+
                     const onRetry = (strategy: string, attempt: number) => {
-                        subscriber.next({ 
-                            type: 'status', 
+                        subscriber.next({
+                            type: 'status',
                             message: `Retrying ${strategy} (Attempt ${attempt})...`,
-                            is_retry: true 
+                            is_retry: true
                         });
                     };
 
                     const onFallback = (strategy: string) => {
-                        subscriber.next({ 
-                            type: 'status', 
+                        subscriber.next({
+                            type: 'status',
                             message: `Falling back from ${strategy}...`,
-                            is_fallback: true 
+                            is_fallback: true
                         });
                     };
 
-                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, gKey, pKey, onRetry, onFallback);
+                    const turnData = await this.aiService.generateGameTurn(prompt, history, genre, isAuthenticated, gKey, pKey, onRetry, onFallback);
 
                     const paragraphs = turnData.paragraphs || [];
                     const options = turnData.options || [];
@@ -89,7 +89,7 @@ export class GameService {
                     // 2. Process Each Paragraph in Parallel/Pipeline
                     const promises = paragraphs.map(async (paragraph: string, pIndex: number) => {
                         // Start Image Gen
-                        const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, gKey)
+                        const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, isAuthenticated, gKey)
                             .then(img => {
                                 subscriber.next({ type: 'image', index: pIndex, data: img });
                             })
@@ -103,7 +103,7 @@ export class GameService {
 
                         const audioPromises = sentences.map(async (sentence, sIndex) => {
                             try {
-                                const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, gKey, pKey, oKey);
+                                const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, isAuthenticated, gKey, pKey, oKey);
                                 subscriber.next({
                                     type: 'audio',
                                     pIndex: pIndex,

@@ -1,14 +1,15 @@
-import { Controller, Post, Get, Body, Headers, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, BadRequestException, UseGuards, Req } from '@nestjs/common';
 import { AiService } from './ai.service';
-import { AuthGuard } from '../auth/auth.guard';
+import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 
 @Controller('ai')
-// @UseGuards(AuthGuard) // Disabled until MongoDB is restored
+@UseGuards(OptionalAuthGuard)
 export class AiController {
     constructor(private readonly aiService: AiService) { }
 
     @Post('text')
     async generateText(
+        @Req() req: any,
         @Body('prompt') prompt: string,
         @Body('history') history: any[],
         @Body('model') model: string,
@@ -16,6 +17,7 @@ export class AiController {
         @Headers('x-pollinations-token') pollinationsKey: string
     ) {
         if (!prompt) throw new BadRequestException('Prompt is required');
+        const isAuthenticated = !!req.user;
 
         // Sanitize keys: treat "undefined", "null", or empty strings as missing
         const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
@@ -24,22 +26,19 @@ export class AiController {
         const pHeader = sanitize(pollinationsKey);
 
         // Only accept header key if it looks like a valid Gemini API Key (starts with AIza)
-        // Otherwise fallback to env key. This prevents OAuth tokens from breaking the call.
+        // Otherwise fallback to env key (if authenticated). This prevents OAuth tokens from breaking the call.
         const validGHeader = (gHeader && gHeader.startsWith('AIza')) ? gHeader : undefined;
 
-        const gKey = validGHeader || process.env.GOOGLE_API_KEY;
-        const pKey = pHeader || process.env.POLLINATIONS_TOKEN;
-
-        console.log(`[Text] Google Key: ${gHeader ? 'Present (Header)' : 'Missing (Header)'} -> Final: ${gKey ? 'Present (' + gKey.substring(0, 5) + '...)' : 'Missing'}`);
-        console.log(`[Text] Pollinations Key: ${pHeader ? 'Present (Header)' : 'Missing (Header)'} -> Final: ${pKey ? 'Present' : 'Missing'}`);
+        console.log(`[Text] Google Header: ${gHeader ? 'Present' : 'Missing'} -> Valid: ${!!validGHeader}, Authenticated: ${isAuthenticated}`);
 
         return {
-            text: await this.aiService.generateText(prompt, history || [], gKey, pKey, model)
+            text: await this.aiService.generateText(prompt, history || [], isAuthenticated, validGHeader, pHeader, model)
         };
     }
 
     @Post('audio')
     async generateAudio(
+        @Req() req: any,
         @Body('text') text: string,
         @Body('voice') voice: string,
         @Body('genre') genre: string,
@@ -49,26 +48,25 @@ export class AiController {
         @Headers('x-openai-api-key') openaiKey: string
     ) {
         if (!text) throw new BadRequestException('Text is required');
+        const isAuthenticated = !!req.user;
 
         const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
 
         const rawGKey = sanitize(googleKey);
-        // Validate header key format
         const validGKey = (rawGKey && rawGKey.startsWith('AIza')) ? rawGKey : undefined;
+        const pHeader = sanitize(pollinationsKey);
+        const oHeader = sanitize(openaiKey);
 
-        const gKey = validGKey || process.env.GOOGLE_API_KEY;
-        const pKey = sanitize(pollinationsKey) || process.env.POLLINATIONS_TOKEN;
-        const oKey = sanitize(openaiKey) || process.env.OPENAI_API_KEY;
-
-        console.log(`[Audio] Keys - Google: ${!!gKey}, Pollinations: ${!!pKey}, OpenAI: ${!!oKey}`);
+        console.log(`[Audio] Header Keys - Google: ${!!validGKey}, Pollinations: ${!!pHeader}, OpenAI: ${!!oHeader}, Authenticated: ${isAuthenticated}`);
 
         return {
-            audio: await this.aiService.generateAudio(text, voice, genre, lang, gKey, pKey, oKey)
+            audio: await this.aiService.generateAudio(text, voice, genre, lang, isAuthenticated, validGKey, pHeader, oHeader)
         };
     }
 
     @Post('batch-audio')
     async generateBatchAudio(
+        @Req() req: any,
         @Body('texts') texts: string[],
         @Body('voice') voice: string,
         @Body('genre') genre: string,
@@ -78,21 +76,20 @@ export class AiController {
         @Headers('x-openai-api-key') openaiKey: string
     ) {
         if (!texts || !Array.isArray(texts)) throw new BadRequestException('Texts array is required');
+        const isAuthenticated = !!req.user;
 
         const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
 
         const rawGKey = sanitize(googleKey);
         const validGKey = (rawGKey && rawGKey.startsWith('AIza')) ? rawGKey : undefined;
-
-        const gKey = validGKey || process.env.GOOGLE_API_KEY;
-        const pKey = sanitize(pollinationsKey) || process.env.POLLINATIONS_TOKEN;
-        const oKey = sanitize(openaiKey) || process.env.OPENAI_API_KEY;
+        const pHeader = sanitize(pollinationsKey);
+        const oHeader = sanitize(openaiKey);
 
         try {
             const results = await Promise.all(texts.map(async (text) => {
                 if (!text.trim()) return null;
                 try {
-                    return await this.aiService.generateAudio(text, voice, genre, lang, gKey, pKey, oKey);
+                    return await this.aiService.generateAudio(text, voice, genre, lang, isAuthenticated, validGKey, pHeader, oHeader);
                 } catch (e) {
                     console.error(`Batch audio failed for: ${text}`, e);
                     return null;
@@ -106,16 +103,18 @@ export class AiController {
 
     @Post('image')
     async generateImage(
+        @Req() req: any,
         @Body('prompt') prompt: string,
         @Headers('x-google-api-key') googleKey: string
     ) {
         if (!prompt) throw new BadRequestException('Prompt is required');
+        const isAuthenticated = !!req.user;
 
-        const gKey = googleKey || process.env.GOOGLE_API_KEY;
-        // Pollinations key logic can be added if needed, but service mostly uses free tier for image
+        const sanitize = (k: string) => (!k || k === 'undefined' || k === 'null' || k.trim() === '') ? undefined : k;
+        const validGKey = sanitize(googleKey);
 
         return {
-            image: await this.aiService.generateImage(prompt, gKey)
+            image: await this.aiService.generateImage(prompt, isAuthenticated, validGKey)
         };
     }
 

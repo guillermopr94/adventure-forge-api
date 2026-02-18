@@ -1,15 +1,15 @@
 import { Module } from '@nestjs/common';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { PromptAssemblyService } from './prompt-assembly.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
     imports: [
-        // AuthModule disabled (requires MongoDB)
-        // AuthModule
+        AuthModule
     ],
     controllers: [AiController],
-    providers: [AiService],
-    exports: [AiService],
+    providers: [AiService, PromptAssemblyService],
+    exports: [AiService, PromptAssemblyService],
 })
 export class AiModule { }
