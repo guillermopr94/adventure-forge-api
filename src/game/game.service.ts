@@ -74,6 +74,7 @@ export class GameService {
 
                     const turnData = await this.aiService.generateGameTurn(prompt, history, genre, isAuthenticated, gKey, pKey, onRetry, onFallback);
 
+                    // 2. Process Each Paragraph in Parallel/Pipeline with Concurrency Limit
                     const paragraphs = turnData.paragraphs || [];
                     const options = turnData.options || [];
 
@@ -86,40 +87,47 @@ export class GameService {
                         stats_update: turnData.stats_update
                     });
 
-                    // 2. Process Each Paragraph in Parallel/Pipeline
-                    const promises = paragraphs.map(async (paragraph: string, pIndex: number) => {
-                        // Start Image Gen
-                        const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, isAuthenticated, gKey)
-                            .then(img => {
-                                subscriber.next({ type: 'image', index: pIndex, data: img });
-                            })
-                            .catch(e => {
-                                console.warn(`Image failed for P${pIndex}`, e);
-                                subscriber.next({ type: 'image_error', index: pIndex, error: e.message });
+                    const concurrencyLimit = 2; // Process 2 paragraphs at a time
+
+                    for (let i = 0; i < paragraphs.length; i += concurrencyLimit) {
+                        const chunk = paragraphs.slice(i, i + concurrencyLimit);
+                        const chunkPromises = chunk.map(async (paragraph: string, chunkIndex: number) => {
+                            const pIndex = i + chunkIndex;
+
+                            // Start Image Gen
+                            const imgPromise = this.aiService.generateImage(`Scene: ${paragraph.substring(0, 100)}... Style: ${genre}`, isAuthenticated, gKey)
+                                .then(img => {
+                                    subscriber.next({ type: 'image', index: pIndex, data: img });
+                                })
+                                .catch(e => {
+                                    console.warn(`Image failed for P${pIndex}`, e);
+                                    subscriber.next({ type: 'image_error', index: pIndex, error: e.message });
+                                });
+
+                            // Start Audio Gen (Split into sentences first)
+                            const sentences = paragraph.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map(s => s.trim()) || [paragraph];
+
+                            // Process sentences with high concurrency within the paragraph since they are usually small
+                            const audioPromises = sentences.map(async (sentence, sIndex) => {
+                                try {
+                                    const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, isAuthenticated, gKey, pKey, oKey);
+                                    subscriber.next({
+                                        type: 'audio',
+                                        pIndex: pIndex,
+                                        sIndex: sIndex,
+                                        text: sentence, // Key for cache
+                                        data: audio
+                                    });
+                                } catch (e) {
+                                    console.warn(`Audio failed P${pIndex} S${sIndex}`, e);
+                                }
                             });
 
-                        // Start Audio Gen (Split into sentences first)
-                        const sentences = paragraph.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map(s => s.trim()) || [paragraph];
-
-                        const audioPromises = sentences.map(async (sentence, sIndex) => {
-                            try {
-                                const audio = await this.aiService.generateAudio(sentence, voice, genre, lang, isAuthenticated, gKey, pKey, oKey);
-                                subscriber.next({
-                                    type: 'audio',
-                                    pIndex: pIndex,
-                                    sIndex: sIndex,
-                                    text: sentence, // Key for cache
-                                    data: audio
-                                });
-                            } catch (e) {
-                                console.warn(`Audio failed P${pIndex} S${sIndex}`, e);
-                            }
+                            await Promise.all([imgPromise, ...audioPromises]);
                         });
 
-                        await Promise.all([imgPromise, ...audioPromises]);
-                    });
-
-                    await Promise.all(promises);
+                        await Promise.all(chunkPromises);
+                    }
 
                     subscriber.next({ type: 'done' });
                     subscriber.complete();
