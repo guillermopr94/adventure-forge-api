@@ -1,35 +1,36 @@
 # Project State
 
 *Auto-updated by [project-context-sync](https://github.com/clawdbot/skills/project-context-sync)*  
-*Last updated: 2026-02-21 20:53:00*
+*Last updated: 2026-02-21 22:56:00*
 
 ---
 
 ## Last Commit
 
-- **Hash:** f36a97d
-- **Message:** chore: sync project context after SPTA audit [skip ci]
+- **Hash:** 12c7b93
+- **Message:** fix(auth): implement OptionalAuthGuard to allow guest users access to AI endpoints
 - **Branch:** main
 - **Author:** Guillermo Pérez Ruiz
-- **When:** 2026-02-19 10:34:25 +0100
-- **Files changed:** 1
+- **When:** 2026-02-21 22:56:21 +0100
+- **Files changed:** 2
 
 **Changed files:**
 ```
-PROJECT_STATE.md
+src/auth/optional-auth.guard.ts
+src/ai/ai.controller.ts
 ```
 
 ## Recent Changes
 
+- 12c7b93: fix(auth): implement OptionalAuthGuard to allow guest users access to AI endpoints
 - f36a97d: chore: sync project context after SPTA audit [skip ci]
 - 85ccfd1: chore: update PROJECT_STATE.md after PR manager sync
 - 75cab53: Merge pull request #95 from guillermopr94/feature/limit-concurrency-audio-gen
 - de6c533: perf: limit concurrency in batch audio and stream generation
-- 14ed96a: chore: update PROJECT_STATE.md after PR manager sync
 
 ## Current Focus
 
-**Stability & Architecture Refinement** — Backend is in a maintenance phase after recent performance optimizations (concurrency limits in audio/image generation). Last significant work merged PR #95 which limited concurrent batch operations. Context documentation is being kept current via automated syncs.
+**Authentication & Guest User Support** — Implemented OptionalAuthGuard to allow guest users access to AI endpoints (audio generation) while maintaining authentication validation for authenticated users. This fixes critical 401 errors preventing guest users from experiencing audio narration features. Backend now supports both authenticated and unauthenticated flows seamlessly.
 
 ## Suggested Next Steps
 
