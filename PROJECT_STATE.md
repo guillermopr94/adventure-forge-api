@@ -1,47 +1,62 @@
-# Project State (Adventure Forge - Backend)
-*Auto-updated by CHATYI (SPTA Protocol)*
+# Project State
+
+*Auto-updated by [project-context-sync](https://github.com/clawdbot/skills/project-context-sync)*  
+*Last updated: 2026-02-21 20:53:00*
+
+---
 
 ## Last Commit
-- **Hash:** 85ccfd1
-- **Message:** chore: update PROJECT_STATE.md after PR manager sync
+
+- **Hash:** f36a97d
+- **Message:** chore: sync project context after SPTA audit [skip ci]
 - **Branch:** main
-- **When:** 2026-02-19
+- **Author:** Guillermo Pérez Ruiz
+- **When:** 2026-02-19 10:34:25 +0100
+- **Files changed:** 1
 
-## Recent Merges (Production)
-- 75cab53: Merge PR #95 — Limit concurrency in batch audio and stream generation
-- cd1953a: Merge PR #94 — Restore MongoDB game saves
-- cc041af: Merge PR #93 — Enforce AuthGuard on AiController
+**Changed files:**
+```
+PROJECT_STATE.md
+```
 
-## Technical Architect Findings (SPTA - 2026-02-19)
-- **Build Status:** ✅ SUCCESS (npm run build — no errors)
-- **Open Issues:** 30 open issues
+## Recent Changes
 
-### 🔴 New Issues Created This Session
+- f36a97d: chore: sync project context after SPTA audit [skip ci]
+- 85ccfd1: chore: update PROJECT_STATE.md after PR manager sync
+- 75cab53: Merge pull request #95 from guillermopr94/feature/limit-concurrency-audio-gen
+- de6c533: perf: limit concurrency in batch audio and stream generation
+- 14ed96a: chore: update PROJECT_STATE.md after PR manager sync
 
-| # | Title | Priority |
-|---|-------|----------|
-| #96 | [SECURITY] Body size limit 50MB (DoS vector) | P1 |
-| #97 | [PERFORMANCE] Unbounded sentence-level audio concurrency in streamTurn | P1 |
-| #98 | [STABILITY] Missing MongoDB connection pool + heartbeat | P1 |
-| #99 | [TECH-DEBT] Duplicated sanitize() x4 in AiController | P2 |
-| #100 | [TECH-DEBT] Dynamic runtime require('rxjs') in GameService | P2 |
+## Current Focus
 
-### Existing Critical Issues
-- **#91** [P0 SECURITY] Hardcoded API Keys in Test Scripts
-- **#54** [P1 SECURITY] Restrict CORS origins in production
-- **#92** [P1] Decompose monolithic AiService (47KB)
-- **#85** [P2] Missing env var validation on startup
-- **#87** [P2] Global Exception Filter missing
+**Stability & Architecture Refinement** — Backend is in a maintenance phase after recent performance optimizations (concurrency limits in audio/image generation). Last significant work merged PR #95 which limited concurrent batch operations. Context documentation is being kept current via automated syncs.
 
 ## Suggested Next Steps
-1. **#96** Fix body size limit — 5 min fix in main.ts (P1 security)
-2. **#98** Add MongoDB heartbeat config — 10 min fix in app.module.ts (P1 stability)
-3. **#97** Add sentence concurrency limit in streamTurn (P1 performance)
-4. **#91** Purge hardcoded keys from test scripts (P0 security)
-5. **#92** Begin AiService decomposition (P1 refactor, large task)
 
-## Technical State
-- Build: ✅ SUCCESS
-- Tests: Unit tests present for AiController + PromptAssemblyService
-- Concurrency: Paragraphs (2) + BatchAudio (3) limited; ⚠️ Sentences still unbounded
-- MongoDB: ⚠️ No heartbeat configured — connection may drop on Render idle
+- **#103** [STABILITY] — Implement actual token counting in PromptAssemblyService
+- **#102** [ARCH] — Refactor AiService to Strategy Pattern (reduce monolith complexity)
+- **#104** [P1][SECURITY] — Create Session Token Exchange Endpoint
+- **#105** [P1][SECURITY] — Implement Session Token Validation Middleware
+- **#106** [P1][SECURITY] — Infrastructure config for session tokens
+- Monitor production API performance (Render deployment)
+
+## Open Pull Requests
+
+**Status:** ✅ No open PRs (all branches merged)
+
+## CI/CD Status
+
+**Latest Run:** ✅ SUCCESS (E2E Tests - main branch)
+- Deployment: Render (adventure-forge-api)
+- Last verified: 2026-02-21 (via frontend integration tests)
+
+## Backlog Overview
+
+**Total Issues:** 10 open (focus on architecture and security)
+
+**Top Priorities:**
+1. **#104** [P1][SECURITY] — Session Token Exchange Endpoint
+2. **#105** [P1][SECURITY] — Session Token Validation Middleware
+3. **#103** [STABILITY] — Implement Token Counting
+4. **#102** [ARCH] — Strategy Pattern Refactor (AiService)
+5. **#106** [P1][SECURITY] — Session Token Infrastructure Config
