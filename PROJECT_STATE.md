@@ -1,32 +1,30 @@
 # Project State
 
 *Auto-updated by [project-context-sync](https://github.com/clawdbot/skills/project-context-sync)*  
-*Last updated: 2026-02-21 22:56:00*
+*Last updated: 2026-02-21 23:05:00*
 
 ---
 
 ## Last Commit
 
-- **Hash:** 12c7b93
-- **Message:** fix(auth): implement OptionalAuthGuard to allow guest users access to AI endpoints
+- **Hash:** 8dd37dd
+- **Message:** chore: update PROJECT_STATE after AEP Protocol execution [skip ci]
 - **Branch:** main
 - **Author:** Guillermo Pérez Ruiz
-- **When:** 2026-02-21 22:56:21 +0100
-- **Files changed:** 2
+- **When:** 2026-02-21 22:56:00 +0100
+- **Files changed:** 1
 
 **Changed files:**
 ```
-src/auth/optional-auth.guard.ts
-src/ai/ai.controller.ts
+PROJECT_STATE.md
 ```
 
 ## Recent Changes
 
+- 8dd37dd: chore: update PROJECT_STATE after AEP Protocol execution [skip ci]
 - 12c7b93: fix(auth): implement OptionalAuthGuard to allow guest users access to AI endpoints
+- 7aeb6b9: chore: sync PROJECT_STATE after PR Manager execution [skip ci]
 - f36a97d: chore: sync project context after SPTA audit [skip ci]
-- 85ccfd1: chore: update PROJECT_STATE.md after PR manager sync
-- 75cab53: Merge pull request #95 from guillermopr94/feature/limit-concurrency-audio-gen
-- de6c533: perf: limit concurrency in batch audio and stream generation
 
 ## Current Focus
 
