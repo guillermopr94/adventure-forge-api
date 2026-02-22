@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
 import { GameModule } from './game/game.module';
+import { TokenModule } from './token/token.module';
 
 @Module({
     imports: [
@@ -15,7 +16,8 @@ import { GameModule } from './game/game.module';
         }),
         AiModule,
         AuthModule,
-        GameModule
+        GameModule,
+        TokenModule
     ],
     controllers: [],
     providers: [],
