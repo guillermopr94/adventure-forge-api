@@ -46,6 +46,27 @@ export class GameService {
         return this.gameSaveModel.findOneAndDelete({ _id: saveId, userId });
     }
 
+    /**
+     * Generate fallback content when AI services fail.
+     * Graceful degradation to prevent total application failure.
+     *
+     * @see Issue #127 - SSE Stream Timeout Guards
+     */
+    private getFallbackContent(genre: string): { narrativeText: string; imageUrl: string } {
+        const fallbacks: Record<string, string> = {
+            fantasy: "Your adventure begins in a mysterious land shrouded in mist. Ancient runes glow faintly on weathered stones as you step forward into the unknown.",
+            scifi: "You awaken aboard a spacecraft drifting through the void of deep space. The AI systems are offline, and you must navigate to safety using manual controls.",
+            mystery: "The fog rolls in as you arrive at the abandoned manor. A faint light flickers in an upstairs window, beckoning you to investigate.",
+            horror: "Something stirs in the darkness beyond the candlelight. Your breath forms clouds in the frigid air as footsteps echo down the hallway.",
+            romance: "Your eyes meet across the crowded ballroom. Time seems to slow as the orchestra swells, and you feel an inexplicable connection.",
+        };
+
+        return {
+            narrativeText: fallbacks[genre] || "Your journey begins in an unexpected place...",
+            imageUrl: '', // No image on fallback (graceful degradation)
+        };
+    }
+
     // --- Streaming Logic ---
     streamTurn(userId: string, prompt: string, history: any[], voice: string, genre: string, lang: string, isAuthenticated: boolean, gKey?: string, pKey?: string, oKey?: string): any {
         const { Observable, merge, interval, of } = require('rxjs');
@@ -134,8 +155,27 @@ export class GameService {
                     subscriber.complete();
 
                 } catch (e: any) {
-                    console.error("Stream Error", e);
-                    subscriber.error(e);
+                    console.error("[GameService] AI service failed, returning fallback content", e);
+
+                    // Fallback: return generic content to prevent total failure (#127)
+                    const fallback = this.getFallbackContent(genre);
+
+                    subscriber.next({
+                        type: 'text_structure',
+                        paragraphs: [fallback.narrativeText],
+                        options: ['Continue', 'Explore surroundings', 'Check inventory'],
+                        inventory_changes: [],
+                        stats_update: {}
+                    });
+
+                    subscriber.next({
+                        type: 'status',
+                        message: 'AI service unavailable - using fallback content',
+                        is_fallback: true
+                    });
+
+                    subscriber.next({ type: 'done' });
+                    subscriber.complete();
                 }
             })();
         });

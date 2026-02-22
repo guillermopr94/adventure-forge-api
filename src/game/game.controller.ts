@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Post, Query, UseGuards, UnauthorizedException, ForbiddenException, Sse, Headers, Header, MessageEvent, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards, UnauthorizedException, ForbiddenException, Sse, Headers, Header, MessageEvent, Req, Res, UseInterceptors } from '@nestjs/common';
 import { GameService } from './game.service';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { AuthGuard } from '../auth/auth.guard';
 import { OptionalAuthGuard } from '../auth/optional-auth.guard';
+import { TimeoutInterceptor } from '../common/interceptors/timeout.interceptor';
 
 // Basic DTOs
 class SaveGameDto {
@@ -52,6 +53,7 @@ export class GameController {
 
     @Post('stream')
     @UseGuards(OptionalAuthGuard)
+    @UseInterceptors(new TimeoutInterceptor(30000)) // 30s timeout (fixes #127)
     @Header('Content-Type', 'text/event-stream')
     @Header('Cache-Control', 'no-cache')
     @Header('Connection', 'keep-alive')
