@@ -48,9 +48,10 @@ export class GameService {
 
     // --- Streaming Logic ---
     streamTurn(userId: string, prompt: string, history: any[], voice: string, genre: string, lang: string, isAuthenticated: boolean, gKey?: string, pKey?: string, oKey?: string): any {
-        const { Observable } = require('rxjs');
+        const { Observable, merge, interval, of } = require('rxjs');
+        const { map, takeUntil, finalize } = require('rxjs/operators');
 
-        return new Observable((subscriber: any) => {
+        const mainStream$ = new Observable((subscriber: any) => {
             (async () => {
                 try {
                     // 1. Generate Structured Game Turn
@@ -138,5 +139,12 @@ export class GameService {
                 }
             })();
         });
+
+        const heartbeat$ = interval(5000).pipe(
+            map(() => ({ type: 'heartbeat', timestamp: new Date().toISOString() })),
+            takeUntil(mainStream$.pipe(finalize(() => {})))
+        );
+
+        return merge(mainStream$, heartbeat$);
     }
 }
