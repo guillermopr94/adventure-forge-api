@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { TokenService } from './token.service';
+import { TokenCostGuard } from './token-cost.guard';
 import {
   UserTokenBalance,
   UserTokenBalanceSchema,
@@ -21,7 +22,7 @@ import {
       { name: TokenTransaction.name, schema: TokenTransactionSchema },
     ]),
   ],
-  providers: [TokenService],
-  exports: [TokenService],
+  providers: [TokenService, TokenCostGuard],
+  exports: [TokenService, TokenCostGuard],
 })
 export class TokenModule {}
